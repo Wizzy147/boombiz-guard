@@ -1,0 +1,28 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer components {
+  /* Yellow fill, black text — the only way yellow appears on white. */
+  .btn {
+    @apply inline-flex min-h-[44px] items-center justify-center gap-2 px-5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-guard-ink focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-primary {
+    @apply btn bg-guard-500 text-guard-ink hover:bg-guard-600;
+  }
+  .btn-dark {
+    @apply btn bg-guard-ink text-white hover:bg-guard-night;
+  }
+  .btn-outline {
+    @apply btn border border-slate-300 bg-white text-guard-ink hover:border-guard-ink;
+  }
+  .field {
+    @apply block w-full border border-slate-300 bg-white px-3 py-2.5 text-[15px] text-guard-ink placeholder:text-slate-400 focus:border-guard-ink focus:outline-none focus:ring-2 focus:ring-guard-500;
+  }
+  .label {
+    @apply mb-1.5 block text-sm font-medium text-guard-ink;
+  }
+  .card {
+    @apply border border-slate-200 bg-white;
+  }
+}

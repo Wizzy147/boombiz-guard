@@ -1,0 +1,23 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+node_modules/
+dist/
+build/
+*.spec.bak
+# Runtime data: the local DB holds DPAPI-encrypted credentials and must never
+# be committed, even encrypted.
+agent/data/
+*.db
+*.db-journal
+*.log
+lab/media/
+# Lab runtime: MediaMTX binary (downloaded, not ours), generated configs, the
+# lab agent's setup token + DB.
+lab/bin/
+lab/run/
+# MediaMTX writes a self-signed TLS cert + PRIVATE KEY into its working dir.
+auto.crt
+auto.key
+*.key

@@ -1,0 +1,20 @@
+[project]
+name = "boombiz-guard-agent"
+version = "0.1.0"
+description = "Boombiz Guard Agent — local CCTV discovery, streaming and (later) AI"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+  "sqlalchemy>=2.0",
+  "pydantic>=2.7",
+  "httpx>=0.27",
+  "psutil>=5.9",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-asyncio>=0.23"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
