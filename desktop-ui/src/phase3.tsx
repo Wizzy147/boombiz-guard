@@ -643,6 +643,66 @@ interface CloudStatus {
   last_heartbeat_at: string | null;
   queued: number;
   cloud_url: string;
+  sync: {
+    pending: number; failed: number; completed: number; skipped: number; warning: string | null;
+    bandwidth: { mode: BandwidthMode; until: string | null; cap_gb: number };
+  } | null;
+}
+
+type BandwidthMode = "NORMAL" | "LOW" | "METADATA_ONLY";
+const BANDWIDTH_OPTIONS: { mode: BandwidthMode; label: string; note: string }[] = [
+  { mode: "NORMAL", label: "Normal", note: "Details, snapshots and clips upload as recorded." },
+  { mode: "LOW", label: "Low bandwidth", note: "Smaller snapshots and 360p clips for the upload. Evidence on this computer stays full quality." },
+  { mode: "METADATA_ONLY", label: "Details only (24 hours)", note: "Only incident details upload. Snapshots and clips wait, then everything resumes after 24 hours." },
+];
+
+function BandwidthSetting({ st, canEdit, onSaved }: { st: NonNullable<CloudStatus["sync"]>; canEdit: boolean; onSaved: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [cap, setCap] = useState(String(st.bandwidth.cap_gb));
+  async function save(mode: BandwidthMode, capGb?: number) {
+    setBusy(true);
+    setErr(null);
+    try {
+      await api2.put("/cloud/bandwidth", { mode, ...(capGb ? { cap_gb: capGb } : {}) });
+      onSaved();
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <fieldset className="mt-3 border-t border-slate-200 pt-3">
+      <legend className="font-semibold">Internet use</legend>
+      <div className="mt-1 space-y-2">
+        {BANDWIDTH_OPTIONS.map((o) => (
+          <label key={o.mode} className="flex gap-2">
+            <input type="radio" name="bw" className="mt-1 h-4 w-4 accent-black" checked={st.bandwidth.mode === o.mode}
+                   disabled={!canEdit || busy} onChange={() => save(o.mode)} />
+            <span><b>{o.label}</b><span className="block text-slate-700">{o.note}</span></span>
+          </label>
+        ))}
+      </div>
+      {st.bandwidth.mode === "METADATA_ONLY" && st.bandwidth.until && (
+        <p className="mt-2 text-slate-700">Back to normal at {new Date(st.bandwidth.until).toLocaleString()}.</p>
+      )}
+      {canEdit && (
+        <div className="mt-3">
+          <label htmlFor="cap" className="block font-semibold">Most video to hold for upload while offline</label>
+          <div className="mt-1 flex items-center gap-2">
+            <input id="cap" inputMode="decimal" value={cap} onChange={(e) => setCap(e.target.value.replace(/[^0-9.]/g, ""))}
+                   className="input w-20" aria-describedby="cap-note" />
+            <span>GB</span>
+            <button type="button" className="btn-outline" disabled={busy || !(Number(cap) >= 1 && Number(cap) <= 20)}
+                    onClick={() => save(st.bandwidth.mode, Number(cap))}>Save</button>
+          </div>
+          <p id="cap-note" className="mt-1 text-slate-700">1–20 GB. Above this, older non-critical clips are skipped first.</p>
+        </div>
+      )}
+      <ErrorNote message={err} />
+    </fieldset>
+  );
 }
 
 function PhoneAlertsSection({ canLink }: { canLink: boolean }) {
@@ -731,6 +791,16 @@ function PhoneAlertsSection({ canLink }: { canLink: boolean }) {
             <p className="text-slate-700">Last check-in with Boombiz: {new Date(st.last_heartbeat_at).toLocaleTimeString()}.</p>
           )}
           {st.queued > 0 && <p>{st.queued} alert{st.queued === 1 ? "" : "s"} waiting to send.</p>}
+          {st.sync && st.sync.pending > 0 && (
+            <p>{st.sync.pending} incident upload{st.sync.pending === 1 ? "" : "s"} waiting (details first, then snapshots, then clips).</p>
+          )}
+          {st.sync && st.sync.failed > 0 && (
+            <p className="text-slate-700">{st.sync.failed} upload{st.sync.failed === 1 ? "" : "s"} couldn't be sent — the file was removed from this computer or refused.</p>
+          )}
+          {st.sync?.warning && (
+            <p className="border border-amber-400 bg-amber-50 px-3 py-2 text-guard-ink" role="status">{st.sync.warning}</p>
+          )}
+          {st.sync && <BandwidthSetting st={st.sync} canEdit={canLink} onSaved={load} />}
           {canLink && <button type="button" className="btn-outline" onClick={unpair}>Unlink this computer</button>}
         </div>
       ) : waiting && secondsLeft > 0 ? (

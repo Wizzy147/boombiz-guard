@@ -34,7 +34,7 @@ CAMERA_UP = {"ONLINE", "DEGRADED"}  # DEGRADED still delivers frames
 
 
 def collect_health(db: "Database", streams: "StreamManager", ai: "AIService", link: "CloudLink",
-                   version: str) -> dict:
+                   version: str, sync=None) -> dict:  # noqa: ANN001 — SyncQueue, optional
     sysh = system_snapshot()
     health = streams.health()
     with db.session() as s:
@@ -58,7 +58,8 @@ def collect_health(db: "Database", streams: "StreamManager", ai: "AIService", li
         "ai_running": bool(ai_status.get("running")),
         # None when no alarm output is configured: nothing to be broken.
         "alarm_available": (all(o.health not in ("UNAVAILABLE", "ERROR") for o in outputs) if outputs else None),
-        "queue_size": link.queued(),
+        "queue_size": link.queued() + (sync.pending() if sync else 0),
+        "bandwidth_mode": sync.bandwidth.mode() if sync else None,
         "last_incident_at": iso_utc(last_incident),
     }
 

@@ -11,7 +11,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -326,6 +326,32 @@ class CloudOutbox(Base):
     last_error: Mapped[str | None] = mapped_column(String)
     next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class SyncJob(Base):
+    """Phase 4 §15–17 — every cloud-bound incident operation, durable.
+
+    One row per (operation, incident): re-queuing an incident whose severity
+    rose or that was reviewed resets its INCIDENT_UPSERT row instead of
+    adding a second one. Payloads are built from the incident at send time,
+    so a retry always sends the latest state. `cloud_ref` holds the cloud's
+    incident id once the upsert succeeded; media waits for it.
+    """
+
+    __tablename__ = "sync_queue"
+    __table_args__ = (UniqueConstraint("operation_type", "resource_id", name="uq_sync_op_resource"),)
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: new_id("sync"))
+    operation_type: Mapped[str] = mapped_column(String, nullable=False)  # INCIDENT_UPSERT | SNAPSHOT_UPLOAD | CLIP_UPLOAD
+    resource_id: Mapped[str] = mapped_column(String, nullable=False, index=True)  # incident id
+    priority: Mapped[int] = mapped_column(Integer, default=70)  # lower first (§17 ×10, see cloud/sync.py)
+    status: Mapped[str] = mapped_column(String, default="PENDING", index=True)  # PENDING|PROCESSING|COMPLETED|RETRY|FAILED
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    last_error: Mapped[str | None] = mapped_column(String)
+    cloud_ref: Mapped[str | None] = mapped_column(String)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
 
 
 class Setting(Base):

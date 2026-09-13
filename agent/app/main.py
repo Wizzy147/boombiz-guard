@@ -27,6 +27,7 @@ from .api.incident_routes import inc_api, media_api
 from .api.notify_routes import notify_api
 from .cloud.client import CloudLink
 from .cloud.heartbeat import HEARTBEAT_SECONDS, Heartbeat, collect_health
+from .cloud.sync import SyncQueue
 from .database.models import Setting
 from .notify.feed import feed as notify_feed
 from .buffer.segment_manager import BufferManager
@@ -48,7 +49,7 @@ from .services.streams import StreamManager
 log = logging.getLogger("guard")
 
 UI_DIST = Path(__file__).resolve().parents[2] / "desktop-ui" / "dist"
-VERSION = "0.4.0-phase4a"
+VERSION = "0.4.1-phase4b"
 
 
 def create_app(settings: Settings | None = None, *, db_path: str | None = None, cipher=None) -> FastAPI:  # noqa: ANN001
@@ -95,7 +96,8 @@ def create_app(settings: Settings | None = None, *, db_path: str | None = None, 
 
     # ── pop-up notifications: phones via the Boombiz cloud (outbound only) ──
     cloud = CloudLink(db, cipher)
-    heartbeat = Heartbeat(cloud, lambda: collect_health(db, streams, ai, cloud, VERSION))
+    sync = SyncQueue(db, cloud, media_worker)
+    heartbeat = Heartbeat(cloud, lambda: collect_health(db, streams, ai, cloud, VERSION, sync))
 
     def feed_to_outbox() -> None:
         """Copy new pop-up-worthy items into the cloud outbox. Cursor persisted,
@@ -143,6 +145,8 @@ def create_app(settings: Settings | None = None, *, db_path: str | None = None, 
             asyncio.create_task(periodic("cloud flush", 10, cloud.flush, 8)),
             asyncio.create_task(periodic("cloud status", 60, cloud.refresh, 3)),
             asyncio.create_task(periodic("cloud heartbeat", HEARTBEAT_SECONDS, heartbeat.beat, 15)),
+            asyncio.create_task(periodic("incident sync scan", 5, sync.scan, 6)),
+            asyncio.create_task(periodic("incident sync", 5, sync.process, 9)),
         ]
         db.audit("agent_started", None, version=VERSION)
         log.info("Boombiz Guard %s ready — open http://127.0.0.1:%s/#t=<token from %s>",
@@ -173,6 +177,7 @@ def create_app(settings: Settings | None = None, *, db_path: str | None = None, 
     app.state.buffers = buffers
     app.state.media = media_worker
     app.state.cloud = cloud
+    app.state.sync = sync
     app.state.version = VERSION
     app.include_router(notify_api)
     app.include_router(inc_api)

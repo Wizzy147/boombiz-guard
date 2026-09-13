@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
@@ -30,7 +32,9 @@ async def cloud_status(r: Request) -> dict:
     # 60-second loop, so the screen flips to "Linked" as the owner claims it.
     if link.state.get("pairing_code") and not link.state.get("paired"):
         await link.refresh()
-    return {**link.state, "queued": link.queued(), "cloud_url": link.base}
+    sync = getattr(r.app.state, "sync", None)
+    return {**link.state, "queued": link.queued(), "cloud_url": link.base,
+            "sync": sync.status() if sync else None}
 
 
 @notify_api.post("/cloud/pair")
@@ -56,6 +60,28 @@ async def cloud_activate(r: Request, body: ActivateBody) -> dict:
                                                 r.app.state.version)
     except CloudError as e:
         raise HTTPException(400, str(e)) from None
+
+
+class BandwidthBody(BaseModel):
+    mode: Literal["NORMAL", "LOW", "METADATA_ONLY"]
+    cap_gb: float | None = Field(default=None, ge=1, le=20)
+
+
+@notify_api.get("/cloud/bandwidth")
+async def get_bandwidth(r: Request) -> dict:
+    return r.app.state.sync.bandwidth.get()
+
+
+@notify_api.put("/cloud/bandwidth")
+async def put_bandwidth(r: Request, body: BandwidthBody) -> dict:
+    """§98 upload mode and §99 backlog cap. Owner (or installer at setup)."""
+    require(_role(r), "configure_retention")
+    bw = r.app.state.sync.bandwidth
+    if body.cap_gb is not None:
+        bw.set_cap_gb(body.cap_gb)
+    out = bw.set(body.mode)
+    r.app.state.sync.enforce_cap()
+    return out
 
 
 @notify_api.post("/cloud/unpair")
