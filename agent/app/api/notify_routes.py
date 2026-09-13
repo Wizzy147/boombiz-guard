@@ -25,6 +25,10 @@ async def notifications(r: Request, after: str | None = None, limit: int = 50) -
 @notify_api.get("/cloud/status")
 async def cloud_status(r: Request) -> dict:
     link = r.app.state.cloud
+    # While a pairing code is waiting, ask the cloud now instead of on the
+    # 60-second loop, so the screen flips to "Linked" as the owner claims it.
+    if link.state.get("pairing_code") and not link.state.get("paired"):
+        await link.refresh()
     return {**link.state, "queued": link.queued(), "cloud_url": link.base}
 
 

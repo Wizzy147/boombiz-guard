@@ -629,6 +629,109 @@ export function AlarmsView() {
   );
 }
 
+// ── Phone alerts: link this Guard PC to the business (pairing) ────────
+interface CloudStatus {
+  paired: boolean;
+  business_name: string | null;
+  online: boolean | null;
+  last_error: string | null;
+  pairing_code: string | null;
+  pairing_expires_at: string | null;
+  queued: number;
+  cloud_url: string;
+}
+
+function PhoneAlertsSection({ canLink }: { canLink: boolean }) {
+  const [st, setSt] = useState<CloudStatus | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [now, setNow] = useState(Date.now());
+  const load = useCallback(async () => {
+    try {
+      setSt(await api.get<CloudStatus>("/cloud/status"));
+    } catch (e) {
+      setErr((e as Error).message);
+    }
+  }, []);
+  useEffect(() => {
+    void load();
+  }, [load]);
+  // Poll quickly only while a code is on screen, waiting to be claimed.
+  const waiting = !!st?.pairing_code && !st.paired;
+  useEffect(() => {
+    if (!waiting) return;
+    const t = window.setInterval(() => {
+      setNow(Date.now());
+      void load();
+    }, 4000);
+    return () => window.clearInterval(t);
+  }, [waiting, load]);
+  const secondsLeft = st?.pairing_expires_at ? Math.max(0, Math.round((new Date(st.pairing_expires_at).getTime() - now) / 1000)) : 0;
+  const site = st?.cloud_url.replace(/^https?:\/\//, "") ?? "guard.getboombiz.com";
+
+  async function pair() {
+    setBusy(true);
+    setErr(null);
+    try {
+      await api.post("/cloud/pair");
+      await load();
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function unpair() {
+    if (!window.confirm("Stop sending alerts from this computer to phones?")) return;
+    await api.post("/cloud/unpair");
+    await load();
+  }
+
+  return (
+    <section className="card mt-4 p-4">
+      <h2 className="font-bold text-guard-ink">Phone alerts</h2>
+      {!st ? (
+        <Spinner />
+      ) : st.paired ? (
+        <div className="mt-1 space-y-2 text-sm text-guard-ink">
+          <p className="font-semibold text-emerald-800">Linked to {st.business_name ?? "your business"}.</p>
+          <p>
+            High and critical incidents go to the phones that turned on alerts at {site}.
+            {st.online === false ? " This computer is offline right now — alerts are waiting and will send when it's back." : ""}
+          </p>
+          {st.queued > 0 && <p>{st.queued} alert{st.queued === 1 ? "" : "s"} waiting to send.</p>}
+          {canLink && <button type="button" className="btn-outline" onClick={unpair}>Unlink this computer</button>}
+        </div>
+      ) : waiting && secondsLeft > 0 ? (
+        <div className="mt-2 space-y-3 text-sm text-guard-ink">
+          <p className="font-mono text-4xl font-extrabold tracking-[0.15em] text-guard-ink" aria-label="Pairing code">{st.pairing_code}</p>
+          <ol className="list-decimal space-y-1 pl-5">
+            <li>On the owner's phone, open <b>{site}</b> and sign in.</li>
+            <li>Under <b>Shop computers</b>, type this code and tap <b>Link</b>.</li>
+            <li>Tap <b>Turn on alerts</b> on each phone that should get pop-ups.</li>
+          </ol>
+          <p className="text-slate-700">
+            Code expires in {Math.floor(secondsLeft / 60)}:{String(secondsLeft % 60).padStart(2, "0")}. This screen updates by itself once it's linked.
+          </p>
+        </div>
+      ) : (
+        <div className="mt-1 space-y-2 text-sm text-guard-ink">
+          <p>Send high and critical incidents to the owner's and manager's phones. Needs internet on this computer; alerts wait here while it's offline.</p>
+          {st.last_error && <p className="text-red-800">{st.last_error}</p>}
+          {canLink ? (
+            <button type="button" className="btn-primary" disabled={busy} onClick={pair}>
+              {busy ? <Spinner /> : waiting ? "Get a new code" : "Link to phone alerts"}
+            </button>
+          ) : (
+            <p className="text-slate-700">Sign in as the owner to link phone alerts.</p>
+          )}
+        </div>
+      )}
+      <ErrorNote message={err} />
+    </section>
+  );
+}
+
 // ── Settings: storage, retention, people, location ────────────────────
 const gb = (b: number) => `${(b / 1024 ** 3).toFixed(1)} GB`;
 
@@ -711,6 +814,7 @@ export function SettingsView({ person }: { person: Person | null }) {
           </div>
         )}
       </section>
+      <PhoneAlertsSection canLink={owner} />
       <section className="card mt-4 p-4">
         <h2 className="font-bold text-guard-ink">Location code</h2>
         <p className="mt-1 text-sm text-guard-ink">Used in incident IDs, e.g. BG-{code || "LOC"}-20260913-000184.</p>

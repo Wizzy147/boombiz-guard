@@ -45,22 +45,29 @@ Guard PC ──(outbound HTTPS, when online)──► guard.getboombiz.com ─�
 What reaches the cloud: incident ref, type, severity, camera **name**, time, title. No video, no
 snapshot, no CCTV address or password. Snapshot and clip stay on the shop PC until Phase 4 upload.
 
-## Before phone push works in production
+## Production status
 
-1. `npx prisma db push` against production Neon — adds `GuardDevice`, `GuardPushSubscription`,
-   `GuardAlert` (additive only).
-2. Production VAPID keys (`npx web-push generate-vapid-keys`) → Amplify env vars
-   `GUARD_VAPID_PUBLIC_KEY`, `GUARD_VAPID_PRIVATE_KEY`, `GUARD_VAPID_SUBJECT` **and** add them to the
-   `amplify.yml` env allowlist (otherwise they're silently missing at request time).
-3. Deploy, then on a phone: sign in at guard.getboombiz.com → (iPhone: Add to Home Screen) → Turn on
-   alerts → Send a test. On the Guard PC: Settings → Link to phone alerts → enter the code on the phone.
+1. ✅ Tables `GuardDevice`, `GuardPushSubscription`, `GuardAlert` pushed to production Neon
+   (2026-09-13; the diff was exactly these three tables, nothing else).
+2. ✅ Production VAPID keys set in Amplify as `BOOMBIZ_GUARD_VAPID_PUBLIC_KEY`,
+   `BOOMBIZ_GUARD_VAPID_PRIVATE_KEY`, `BOOMBIZ_GUARD_VAPID_SUBJECT` (2026-09-13, merged — 82 → 85 vars,
+   no existing var changed). The `BOOMBIZ_` prefix is already in the `amplify.yml` allowlist.
+3. ⬜ Deploy the Boombiz app (commit `d01998e`). Env vars only take effect in the next build.
+4. ⬜ Try it: on a phone, sign in at guard.getboombiz.com → (iPhone: Add to Home Screen, open Guard from
+   the home screen) → Turn on alerts → Send a test. On the Guard PC: Settings → Phone alerts → Link to
+   phone alerts → type the code on the phone → Link.
 
 Dev keys live only in the Boombiz repo's git-ignored `.env.local`.
 
+## Pairing screen (Guard PC → Settings → Phone alerts)
+
+Owner only. "Link to phone alerts" shows the 8-character code in large type with a countdown and the
+three phone steps; the screen polls every 4 s while a code is waiting and flips to "Linked to
+<business>" the moment it's claimed. Once linked it shows whether the PC is offline and how many
+alerts are waiting to send; the owner can unlink.
+
 ## Not verified yet
 
-- End-to-end phone push: needs steps 1–3 above. The agent side is covered by tests against a fake
+- End-to-end phone push: needs step 3 (deploy). The agent side is covered by tests against a fake
   cloud (queue while offline, deliver once, stale-HIGH dashboard-only, unpaired stays queued) and the
-  cloud code typechecks, but no real phone has received a Guard push.
-- The agent's setup UI has no "Link to phone alerts" screen yet — pairing is available through
-  `POST /api/v1/cloud/pair` only.
+  cloud code typechecks, but no real phone has received a Guard push yet.
