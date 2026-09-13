@@ -218,6 +218,31 @@ def test_shelf_interaction_resolved_when_shelf_restored():
     assert _shelf_run(item_after=True) == ["SHELF_INTERACTION", "RESOLVED"]
 
 
+def test_scene_cut_is_not_item_taken():
+    """Camera knocked/turned (or a looping lab clip restarting): the whole view
+    changes, the item 'vanishes' — Guard can't verify, so no unresolved."""
+    other = np.random.default_rng(99).integers(0, 255, (200, 200, 3), dtype=np.uint8)
+    eng = ShelfInteractionEngine()
+    eng.set_zones([ZoneDef("shelf", "Shelf", ZoneType.SHELF, SQUARE)])
+    person = BBox(0.3, 0.1, 0.6, 0.9)
+    kinds, t = [], 0.0
+    for _ in range(3):
+        kinds += [e.kind for e in eng.update(_frame(True, False), {}, t)]
+        t += 0.1
+    for i in range(10):
+        kinds += [e.kind for e in eng.update(_frame(True, i % 2 == 0), {"t1": person}, t)]
+        t += 0.1
+    for _ in range(30):
+        kinds += [e.kind for e in eng.update(other, {}, t)]
+        t += 0.1
+    assert "SHELF_INTERACTION" in kinds and "UNRESOLVED_SHELF_INTERACTION" not in kinds
+    # On synthetic noise the blur/downscale averages the cut down (~36 % scene
+    # change), so here brightness/shift are what mark it unverifiable. The
+    # verdict is what matters: no "item taken" from a changed view.
+    it = eng.history["t1"][0]
+    assert it.verifiable is False and it.scene_change is not None
+
+
 # ── performance policy ───────────────────────────────────────────────
 def test_adaptive_policy_levels_and_hysteresis():
     p = AdaptivePolicy()

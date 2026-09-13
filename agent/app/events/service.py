@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 
 from ..database.db import Database
-from ..database.models import AiEvent
+from ..database.models import AiEvent, iso_utc
 from .dedup import Deduper
 
 log = logging.getLogger(__name__)
@@ -51,6 +51,9 @@ class EventService:
         # Everything is persisted by default; PERSON_DETECTED etc. are already
         # once-per-track, so the table grows with people, not with frames.
         self.persist_types = persist_types or EVENT_TYPES
+        # Phase 3: the incident engine subscribes here. Called after the event
+        # is stored; a listener that throws never loses the event.
+        self.listeners: list = []
 
     def emit(self, d: EventDraft, versions: dict[str, str] | None = None) -> dict | None:
         if d.event_type not in EVENT_TYPES:
@@ -70,6 +73,11 @@ class EventService:
             event_id = None
         out = self._to_dict(row, event_id)
         self.feed.append(out)
+        for fn in list(self.listeners):
+            try:
+                fn(out)
+            except Exception:
+                log.exception("event listener failed")
         log.info("event_generated type=%s camera=%s track=%s zone=%s confidence=%s",
                  d.event_type, d.camera_id, d.track_id, d.zone_id, d.confidence)
         return out
@@ -80,7 +88,7 @@ class EventService:
             "id": event_id or r.id, "camera_id": r.camera_id, "track_id": r.track_id, "event_type": r.event_type,
             "severity": r.severity, "confidence": r.confidence, "zone_id": r.zone_id,
             "metadata": json.loads(r.metadata_json or "{}"),
-            "occurred_at": r.occurred_at.isoformat() if r.occurred_at else None,
+            "occurred_at": iso_utc(r.occurred_at),
             "feedback": r.feedback, "feedback_note": r.feedback_note,
         }
 

@@ -19,6 +19,14 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def iso_utc(d: datetime | None) -> str | None:
+    """SQLite drops the timezone; every stored datetime is UTC. Tag it before it
+    leaves the agent, or the browser reads UTC as local time (an hour off in Lagos)."""
+    if d is None:
+        return None
+    return (d if d.tzinfo else d.replace(tzinfo=timezone.utc)).isoformat()
+
+
 def new_id(prefix: str) -> str:
     return f"{prefix}_{uuid.uuid4().hex[:10]}"
 
@@ -180,6 +188,127 @@ class CameraAiConfig(Base):
     concealment: Mapped[bool] = mapped_column(Boolean, default=True)
     # Exit/security-critical cameras keep more FPS under load (§6).
     priority: Mapped[str] = mapped_column(String, default="NORMAL")  # PRIMARY | NORMAL
+
+
+class Incident(Base):
+    """Phase 3 §9. Media lives on disk (encrypted); only references are here."""
+
+    __tablename__ = "incidents"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    ref: Mapped[str] = mapped_column(String, unique=True, nullable=False)  # BG-LAG-20260913-000184
+    business_id: Mapped[str | None] = mapped_column(String)
+    location_id: Mapped[str | None] = mapped_column(String)
+    camera_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    track_id: Mapped[str | None] = mapped_column(String)
+    incident_type: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    severity: Mapped[str] = mapped_column(String, nullable=False)
+    confidence: Mapped[str | None] = mapped_column(String)
+    status: Mapped[str] = mapped_column(String, nullable=False, default="UNREVIEWED", index=True)
+    zone_id: Mapped[str | None] = mapped_column(String)
+    title: Mapped[str | None] = mapped_column(String)
+    description: Mapped[str | None] = mapped_column(Text)
+    correlation_key: Mapped[str | None] = mapped_column(String, index=True)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_event_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Paths are RELATIVE to the incidents folder and point at encrypted files.
+    snapshot_path: Mapped[str | None] = mapped_column(String)
+    clip_path: Mapped[str | None] = mapped_column(String)
+    clip_duration_seconds: Mapped[float | None] = mapped_column(Float)
+    media_status: Mapped[str] = mapped_column(String, default="PENDING")  # PENDING|READY|PARTIAL|UNAVAILABLE|SKIPPED|DELETED
+    media_bytes: Mapped[int] = mapped_column(Integer, default=0)
+    keep_evidence: Mapped[bool] = mapped_column(Boolean, default=False)
+    alarm_state: Mapped[str | None] = mapped_column(String)  # TRIGGERED|COOLDOWN|FAILED|NONE
+    acknowledged_by: Mapped[str | None] = mapped_column(String)
+    acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reviewed_by: Mapped[str | None] = mapped_column(String)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    false_alert_reason: Mapped[str | None] = mapped_column(String)
+    resolution_note: Mapped[str | None] = mapped_column(Text)
+    model_metadata_json: Mapped[str | None] = mapped_column(Text)
+    event_metadata_json: Mapped[str | None] = mapped_column(Text)  # {"trigger": ..., "timeline": [...]}
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # soft delete (§72)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
+
+
+class MediaJob(Base):
+    """Phase 3 §51 — background snapshot/clip work, survives restarts."""
+
+    __tablename__ = "media_jobs"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: new_id("job"))
+    incident_id: Mapped[str] = mapped_column(ForeignKey("incidents.id", ondelete="CASCADE"), nullable=False)
+    job_type: Mapped[str] = mapped_column(String, nullable=False)  # CLIP | THUMBNAIL
+    status: Mapped[str] = mapped_column(String, nullable=False, default="PENDING")  # PENDING|RUNNING|DONE|FAILED
+    priority: Mapped[int] = mapped_column(Integer, default=5)  # lower runs first: fire 1, security 5, thumb 8
+    run_after: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    last_error: Mapped[str | None] = mapped_column(String)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
+
+
+class AlarmOutput(Base):
+    """A physical/virtual alarm: camera siren, DVR relay, USB/network relay, PC buzzer."""
+
+    __tablename__ = "alarm_outputs"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: new_id("alarm"))
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    kind: Mapped[str] = mapped_column(String, nullable=False)  # PC_SOUND|HIKVISION_IO|DAHUA_IO|NETWORK_RELAY|USB_RELAY
+    device_id: Mapped[str | None] = mapped_column(String)      # for DVR/camera outputs: credentials come from the vault
+    config_json: Mapped[str | None] = mapped_column(Text)      # never holds a password
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    health: Mapped[str] = mapped_column(String, default="UNKNOWN")  # AVAILABLE|UNAVAILABLE|ERROR|UNKNOWN
+    last_error: Mapped[str | None] = mapped_column(String)
+    last_tested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class AlarmRule(Base):
+    """Phase 3 §28."""
+
+    __tablename__ = "alarm_rules"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: new_id("rule"))
+    location_id: Mapped[str | None] = mapped_column(String)
+    incident_type: Mapped[str] = mapped_column(String, nullable=False)
+    min_severity: Mapped[str | None] = mapped_column(String)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    alarm_output_id: Mapped[str | None] = mapped_column(String)  # None = every enabled output
+    duration_seconds: Mapped[int] = mapped_column(Integer, default=5)
+    cooldown_seconds: Mapped[int] = mapped_column(Integer, default=30)
+    # §31 fire: repeat every cooldown until someone acknowledges.
+    repeat_until_ack: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class RetentionPolicy(Base):
+    """Phase 3 §42. Most specific match wins: type+severity, type, severity, default."""
+
+    __tablename__ = "retention_policies"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: new_id("ret"))
+    incident_type: Mapped[str | None] = mapped_column(String)
+    severity: Mapped[str | None] = mapped_column(String)
+    retention_days: Mapped[int] = mapped_column(Integer, nullable=False)
+    keep_if_confirmed: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class LocalUser(Base):
+    """People who review incidents on this PC (Phase 3 §35). Offline PIN sign-in."""
+
+    __tablename__ = "local_users"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: new_id("usr"))
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    role: Mapped[str] = mapped_column(String, nullable=False)  # OWNER | MANAGER | SECURITY
+    pin_hash: Mapped[str] = mapped_column(String, nullable=False)  # pbkdf2-sha256$iter$salt$hash
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    failed_attempts: Mapped[int] = mapped_column(Integer, default=0)
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 
 class Setting(Base):

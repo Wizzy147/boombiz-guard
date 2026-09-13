@@ -13,6 +13,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 
+from ..database.models import iso_utc
 from ..health.system import system_snapshot
 from ..services.devices import DeviceService, GuardError
 
@@ -205,7 +206,7 @@ async def health(request: Request) -> dict:
 @api.get("/system/audit")
 async def audit(request: Request) -> dict:
     rows = request.app.state.db.recent_audit(200)
-    return {"audit": [{"action": r.action, "target": r.target, "detail": r.detail, "at": r.at.isoformat()} for r in rows]}
+    return {"audit": [{"action": r.action, "target": r.target, "detail": r.detail, "at": iso_utc(r.at)} for r in rows]}
 
 
 # ── preview (ticketed) ────────────────────────────────────────────────

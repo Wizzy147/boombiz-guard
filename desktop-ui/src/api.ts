@@ -27,6 +27,25 @@ function readToken(): string | null {
 
 const token = readToken();
 
+// Phase 3: the PERSON signed in with a PIN (on top of the device token).
+const SESSION_KEY = "guard_person_session";
+let personSession: string | null = (() => {
+  try {
+    return sessionStorage.getItem(SESSION_KEY);
+  } catch {
+    return null;
+  }
+})();
+export function setPersonSession(s: string | null) {
+  personSession = s;
+  try {
+    if (s) sessionStorage.setItem(SESSION_KEY, s);
+    else sessionStorage.removeItem(SESSION_KEY);
+  } catch {
+    /* in-memory copy still works */
+  }
+}
+
 export const hasToken = () => !!token;
 
 export class ApiError extends Error {
@@ -45,6 +64,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
       headers: {
         "Content-Type": "application/json",
         "X-Guard-Token": token ?? "",
+        ...(personSession ? { "X-Guard-Session": personSession } : {}),
       },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
@@ -260,6 +280,84 @@ export interface DayHours {
 export const api2 = {
   put: <T>(p: string, body: unknown) => request<T>("PUT", p, body),
 };
+
+// ── Phase 3 ───────────────────────────────────────────────────────────
+export type Severity = "INFO" | "LOW" | "HIGH" | "CRITICAL";
+export interface IncidentRow {
+  id: string;
+  ref: string;
+  incident_type: string;
+  title: string | null;
+  severity: Severity;
+  confidence: string | null;
+  status: string;
+  camera: string;
+  camera_id: string;
+  occurred_at: string;
+  ended_at: string | null;
+  has_snapshot: boolean;
+  has_clip: boolean;
+  clip_duration_seconds: number | null;
+  media_status: string;
+  keep_evidence: boolean;
+  alarm_state: string | null;
+  acknowledged_by: string | null;
+  reviewed_by: string | null;
+  false_alert_reason: string | null;
+  resolution_note: string | null;
+  description: string | null;
+  timeline?: { event: string; at: string; zone_id?: string | null }[];
+}
+export interface Person {
+  id: string;
+  name: string;
+  role: "OWNER" | "MANAGER" | "SECURITY";
+  active?: boolean;
+}
+export interface AlarmOut {
+  id: string;
+  name: string;
+  kind: string;
+  enabled: boolean;
+  health: string;
+  last_error: string | null;
+}
+export interface AlarmRuleRow {
+  id: string;
+  incident_type: string;
+  enabled: boolean;
+  duration_seconds: number;
+  cooldown_seconds: number;
+  repeat_until_ack: boolean;
+}
+export interface StorageStatus {
+  guard_media_bytes: number;
+  ceiling_bytes: number;
+  disk_free_bytes: number;
+  level: string;
+  warning: string | null;
+  kept_evidence: number;
+  buffer_ram_bytes: number;
+  policies: { id: string; incident_type: string | null; severity: string | null; retention_days: number; keep_if_confirmed: boolean }[];
+}
+
+export async function incidentMedia(id: string, kind: "snapshot" | "clip" | "thumbnail"): Promise<string> {
+  const r = await request<{ ticket: string }>("POST", `/incidents/${id}/media-ticket?kind=${kind}`, {});
+  return `/api/v1/incidents/${id}/${kind}?ticket=${encodeURIComponent(r.ticket)}`;
+}
+
+export async function download(path: string, filename: string) {
+  const res = await fetch(`/api/v1${path}`, {
+    headers: { "X-Guard-Token": token ?? "", ...(personSession ? { "X-Guard-Session": personSession } : {}) },
+  });
+  if (!res.ok) throw new ApiError("Export failed. Try again.", res.status);
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 export async function previewTicket(cameraId: string): Promise<string> {
   const r = await api.post<{ ticket: string }>(`/cameras/${cameraId}/preview-ticket`);

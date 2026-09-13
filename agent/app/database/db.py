@@ -30,6 +30,9 @@ class Database:
             cur = conn.cursor()
             cur.execute("PRAGMA foreign_keys=ON")
             cur.execute("PRAGMA journal_mode=WAL")
+            # Phase 3 §69: the AI thread, media worker and API write
+            # concurrently; wait rather than fail on a momentary lock.
+            cur.execute("PRAGMA busy_timeout=5000")
             cur.close()
 
         Base.metadata.create_all(self.engine)
@@ -66,6 +69,11 @@ class Database:
             row = s.get(DeviceSecret, device_id)
             if row:
                 s.delete(row)
+
+    def integrity_ok(self) -> bool:
+        """Phase 3 §69 periodic check. quick_check is cheap enough to run daily."""
+        with self.engine.connect() as c:
+            return c.exec_driver_sql("PRAGMA quick_check").scalar() == "ok"
 
     # ── Audit ────────────────────────────────────────────────────────
     def audit(self, action: str, target: str | None = None, **detail: object) -> None:

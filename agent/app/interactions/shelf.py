@@ -73,6 +73,13 @@ class ShelfConfig:
     # Lighting is judged on the SHELF's own pixels: removing one item leaves
     # most of them alone (median change ≈ 0), a light going off moves them all.
     max_brightness_delta: float = 12.0
+    # Scene cut: when most of the WHOLE picture changed between "before" and
+    # "after", the camera was knocked or turned (or, in the lab, a looping clip
+    # restarted). Phase correlation can't catch that — two unrelated pictures
+    # give a low-confidence shift — so it's checked directly. People moving
+    # change ~20 % of a busy scene; a different view changes most of it.
+    max_scene_change: float = 0.5
+    scene_pixel_delta: int = 40
 
 
 _ids = itertools.count(1)
@@ -94,6 +101,7 @@ class Interaction:
     strength: str | None = None  # STRONG | WEAK
     control_change: float | None = None     # camera shift, px at 96-wide
     brightness_change: float | None = None
+    scene_change: float | None = None       # share of the whole frame that changed
     # False when the camera moved or the lighting changed too much to trust the
     # shelf comparison; such an interaction is closed without an alert.
     verifiable: bool | None = None
@@ -106,6 +114,7 @@ class Interaction:
                 "state": self.state.value, "resolved": self.state == InteractionState.RESOLVED,
                 "change_frac": self.change_frac, "strength": self.strength,
                 "camera_shift_px": self.control_change, "brightness_change": self.brightness_change,
+                "scene_change": self.scene_change,
                 "verifiable": self.verifiable}
 
 
@@ -267,8 +276,18 @@ class ShelfInteractionEngine:
                         it.change_frac = round(frac, 4)
                         it.control_change = round(shift, 2)
                         it.brightness_change = round(bright, 1)
-                        camera_moved = shift > self.cfg.max_camera_shift_px and conf >= self.cfg.min_shift_confidence
-                        verifiable = not camera_moved and bright <= self.cfg.max_brightness_delta
+                        # A small shift only counts when the correlation is sure of
+                        # it (noise). A LARGE shift counts regardless: on a real,
+                        # crowded, moving stream the confidence reads low while
+                        # the camera genuinely moved 7–9 px — the lab caught
+                        # false HIGH alerts slipping through exactly that gap.
+                        camera_moved = shift > self.cfg.max_camera_shift_px and (
+                            conf >= self.cfg.min_shift_confidence or shift > 3 * self.cfg.max_camera_shift_px)
+                        scene = (float((np.abs(it.control_before - control) > self.cfg.scene_pixel_delta).mean())
+                                 if it.control_before is not None and it.control_before.shape == control.shape else 0.0)
+                        it.scene_change = round(scene, 3)
+                        verifiable = (not camera_moved and bright <= self.cfg.max_brightness_delta
+                                      and scene <= self.cfg.max_scene_change)
                         it.verifiable = verifiable
                         if frac >= self.cfg.change_frac and verifiable:
                             it.state = InteractionState.UNRESOLVED

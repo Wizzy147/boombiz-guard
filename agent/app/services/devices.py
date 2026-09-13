@@ -26,7 +26,7 @@ from ..adapters.base import AuthResult, Channel, Compatibility, Credentials
 from ..adapters.v380 import V380Adapter
 from ..config import Settings
 from ..database.db import Database
-from ..database.models import Camera, Device
+from ..database.models import Camera, Device, iso_utc
 from ..discovery.scanner import Candidate, Scanner
 from ..security.redact import redact
 from ..security.vault import CredentialVault
@@ -383,7 +383,7 @@ class DeviceService:
             "authentication_required": self.vault.get_credentials(d.id) is None,
             "auth_error": d.auth_error, "source": d.source, "mac_address": d.mac_address,
             "capabilities": caps, "channel_count": len(d.cameras),
-            "last_seen_at": d.last_seen_at.isoformat() if d.last_seen_at else None,
+            "last_seen_at": iso_utc(d.last_seen_at),
         }
 
     def cameras(self, device_id: str | None = None) -> list[dict]:
@@ -406,7 +406,7 @@ class DeviceService:
             "codec_main": c.codec_main, "codec_sub": c.codec_sub, "width": c.width, "height": c.height, "fps": c.fps,
             "guard_enabled": c.guard_enabled, "online": c.online, "compatibility": c.compatibility_status,
             "last_test": json.loads(c.last_test) if c.last_test else None,
-            "tested_at": c.tested_at.isoformat() if c.tested_at else None,
+            "tested_at": iso_utc(c.tested_at),
             "health": health,
         }
 

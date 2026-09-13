@@ -24,6 +24,7 @@ import {
 } from "./api";
 import { CompatBadge, ErrorNote, Lockup, Screen, Snapshot, Spinner } from "./ui";
 import { AiTestView, EventsView, HoursView, ZonesView } from "./phase2";
+import { AlarmsView, GuardModeView, IncidentsView, SettingsView, SignInBar, usePerson } from "./phase3";
 
 /*
  * The Phase 1 installer flow (§26): Welcome → PC check → Scan → Devices
@@ -33,10 +34,14 @@ import { AiTestView, EventsView, HoursView, ZonesView } from "./phase2";
 
 type Step =
   | "welcome" | "pc" | "scan" | "devices" | "channels" | "select" | "test" | "done" | "status"
-  | "zones" | "aitest" | "events" | "hours";
+  | "zones" | "aitest" | "events" | "hours" | "incidents" | "guardmode" | "alarms" | "settings";
 
 const TOOLS: { key: Step; label: string }[] = [
+  { key: "incidents", label: "Incidents" },
+  { key: "guardmode", label: "Guard Mode" },
   { key: "zones", label: "Zones" },
+  { key: "alarms", label: "Alarms" },
+  { key: "settings", label: "Settings" },
   { key: "aitest", label: "Test AI" },
   { key: "events", label: "Events" },
   { key: "hours", label: "Hours" },
@@ -57,6 +62,7 @@ export default function App() {
   const [devices, setDevices] = useState<Device[]>([]);
   const [cameras, setCameras] = useState<Camera[]>([]);
   const [limit, setLimit] = useState(2);
+  const { person, refresh: refreshPerson } = usePerson();
 
   const refresh = useCallback(async () => {
     const [d, c] = await Promise.all([
@@ -87,9 +93,11 @@ export default function App() {
   }
 
   const selected = cameras.filter((c) => c.guard_enabled);
+  const personNeeded = ["incidents", "guardmode", "alarms", "settings"].includes(step);
 
   return (
     <Shell step={step} setStep={setStep}>
+      {personNeeded && <SignInBar person={person} onChange={refreshPerson} />}
       {step === "welcome" && <Welcome onStart={() => setStep("pc")} />}
       {step === "pc" && <PcCheck onNext={() => setStep("scan")} />}
       {step === "scan" && (
@@ -124,6 +132,10 @@ export default function App() {
       {step === "aitest" && <AiTestView />}
       {step === "events" && <EventsView />}
       {step === "hours" && <HoursView />}
+      {step === "incidents" && <IncidentsView person={person} />}
+      {step === "guardmode" && <GuardModeView person={person} />}
+      {step === "alarms" && <AlarmsView />}
+      {step === "settings" && <SettingsView person={person} />}
     </Shell>
   );
 }

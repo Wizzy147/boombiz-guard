@@ -206,6 +206,13 @@ class CameraAIWorker:
             except Exception:
                 self._disable("fire")
 
+        # Phase 3: every event carries the capture time of the frame that
+        # produced it (same monotonic clock as the rolling buffer), so an
+        # incident's "5 s before" is anchored to what the camera saw, not to
+        # when the AI got round to it.
+        for d in drafts:
+            d.metadata.setdefault("frame_ts", ts)
+
         s = self.stats
         s.inferences += 1
         s._times.append(now)
