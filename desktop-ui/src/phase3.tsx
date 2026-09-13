@@ -238,11 +238,12 @@ function IncidentCard({ inc, onOpen }: { inc: IncidentRow; onOpen: () => void })
 }
 
 // ── Incidents ─────────────────────────────────────────────────────────
-export function IncidentsView({ person }: { person: Person | null }) {
+export function IncidentsView({ person, initialOpen = null }: { person: Person | null; initialOpen?: string | null }) {
   const [rows, setRows] = useState<IncidentRow[]>([]);
   const [reasons, setReasons] = useState<Record<string, string>>({});
   const [f, setF] = useState({ period: "7d", severity: "", status: "", q: "", kept: "" });
-  const [open, setOpen] = useState<string | null>(null);
+  // A tray pop-up opens straight onto its incident.
+  const [open, setOpen] = useState<string | null>(initialOpen);
   const [err, setErr] = useState<string | null>(null);
   const load = useCallback(async () => {
     const p = new URLSearchParams();

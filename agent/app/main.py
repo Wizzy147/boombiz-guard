@@ -24,6 +24,10 @@ from .ai.service import AIService
 from .alarms.service import AlarmService
 from .api.ai_routes import ai_api
 from .api.incident_routes import inc_api, media_api
+from .api.notify_routes import notify_api
+from .cloud.client import CloudLink
+from .database.models import Setting
+from .notify.feed import feed as notify_feed
 from .buffer.segment_manager import BufferManager
 from .incidents.service import IncidentService
 from .media.encryption import MediaCrypto
@@ -88,6 +92,26 @@ def create_app(settings: Settings | None = None, *, db_path: str | None = None, 
                 log.exception("%s failed", name)
             await asyncio.sleep(every_s)
 
+    # ── pop-up notifications: phones via the Boombiz cloud (outbound only) ──
+    cloud = CloudLink(db, cipher)
+
+    def feed_to_outbox() -> None:
+        """Copy new pop-up-worthy items into the cloud outbox. Cursor persisted,
+        so nothing is skipped or double-queued across restarts."""
+        with db.session() as s:
+            row = s.get(Setting, "cloud_feed_cursor")
+            cursor = row.value if row else None
+        if cursor is None:  # first run: start now — never push history
+            with db.session() as s:
+                s.add(Setting(key="cloud_feed_cursor", value=datetime.now(timezone.utc).isoformat()))
+            return
+        d = notify_feed(db, cursor, 200)
+        for item in d["items"]:
+            cloud.enqueue_alert(item)
+        if d["cursor"] and d["cursor"] != cursor:
+            with db.session() as s:
+                s.get(Setting, "cloud_feed_cursor").value = d["cursor"]
+
     def integrity() -> None:
         if not db.integrity_ok():
             db.audit("database_integrity_failed", None)
@@ -113,6 +137,9 @@ def create_app(settings: Settings | None = None, *, db_path: str | None = None, 
             asyncio.create_task(periodic("retention", 6 * 3600, retention.cleanup, 30)),
             asyncio.create_task(periodic("alarm health", 60, alarms.check_health, 10)),
             asyncio.create_task(periodic("db integrity", 24 * 3600, integrity, 60)),
+            asyncio.create_task(periodic("notify feed → outbox", 5, feed_to_outbox, 5)),
+            asyncio.create_task(periodic("cloud flush", 10, cloud.flush, 8)),
+            asyncio.create_task(periodic("cloud status", 60, cloud.refresh, 3)),
         ]
         db.audit("agent_started", None, version=VERSION)
         log.info("Boombiz Guard %s ready — open http://127.0.0.1:%s/#t=<token from %s>",
@@ -142,6 +169,9 @@ def create_app(settings: Settings | None = None, *, db_path: str | None = None, 
     app.state.auth = auth
     app.state.buffers = buffers
     app.state.media = media_worker
+    app.state.cloud = cloud
+    app.state.version = VERSION
+    app.include_router(notify_api)
     app.include_router(inc_api)
     app.include_router(media_api)
     app.include_router(ai_api)

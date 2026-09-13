@@ -311,6 +311,23 @@ class LocalUser(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 
+class CloudOutbox(Base):
+    """Alerts waiting to reach the Boombiz cloud (phone push). Survives
+    restarts and internet outages; retried with backoff (PRD §38–39)."""
+
+    __tablename__ = "cloud_outbox"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: new_id("out"))
+    kind: Mapped[str] = mapped_column(String, nullable=False)  # ALERT
+    dedup_key: Mapped[str] = mapped_column(String, unique=True, nullable=False)  # incident ref + severity
+    payload_json: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String, default="PENDING")  # PENDING | SENT | DROPPED
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    last_error: Mapped[str | None] = mapped_column(String)
+    next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
 class Setting(Base):
     __tablename__ = "settings"
 

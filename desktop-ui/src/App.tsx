@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import {
   api,
+  deepLink,
   hasToken,
   type Camera,
   type Device,
@@ -58,7 +59,8 @@ const FLOW: { key: Step; label: string }[] = [
 ];
 
 export default function App() {
-  const [step, setStep] = useState<Step>("welcome");
+  const [step, setStep] = useState<Step>(() =>
+    deepLink.view && ["incidents", "guardmode", "alarms", "settings"].includes(deepLink.view) ? (deepLink.view as Step) : "welcome");
   const [devices, setDevices] = useState<Device[]>([]);
   const [cameras, setCameras] = useState<Camera[]>([]);
   const [limit, setLimit] = useState(2);
@@ -132,7 +134,7 @@ export default function App() {
       {step === "aitest" && <AiTestView />}
       {step === "events" && <EventsView />}
       {step === "hours" && <HoursView />}
-      {step === "incidents" && <IncidentsView person={person} />}
+      {step === "incidents" && <IncidentsView person={person} initialOpen={deepLink.incident} />}
       {step === "guardmode" && <GuardModeView person={person} />}
       {step === "alarms" && <AlarmsView />}
       {step === "settings" && <SettingsView person={person} />}

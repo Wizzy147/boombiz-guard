@@ -6,6 +6,16 @@
 
 const TOKEN_KEY = "guard_setup_token";
 
+// Deep link from a tray pop-up: #t=…&view=incidents&incident=<id>
+export const deepLink: { view: string | null; incident: string | null } = (() => {
+  const h = window.location.hash;
+  const get = (k: string) => {
+    const m = h.match(new RegExp(`[#&]${k}=([^&]+)`));
+    return m ? decodeURIComponent(m[1]) : null;
+  };
+  return { view: get("view"), incident: get("incident") };
+})();
+
 function readToken(): string | null {
   const m = window.location.hash.match(/[#&]t=([^&]+)/);
   if (m) {
