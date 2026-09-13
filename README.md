@@ -3,11 +3,29 @@
 Turns the CCTV a shop already owns into an incident-detection system. A product
 of Digital Orca Limited, in the Boombiz family.
 
-**Current state: Phase 1 — CCTV foundation.** The agent can scan a shop LAN,
-find cameras and DVR/NVRs, sign in, list channels, preview live video without
-exposing the CCTV password, test compatibility, choose up to 2 Guard cameras,
-and keep those streams connected through dropouts and restarts. No AI yet
-(Phase 2).
+**Current state: Phase 2 — local AI.** Phase 1 (CCTV foundation) scans a
+shop LAN, signs in to cameras and DVR/NVRs, previews video without exposing
+the CCTV password, and keeps up to 2 Guard streams connected. Phase 2 adds
+on-device AI on those streams: YOLOX person detection, tracking, zones,
+restricted/after-hours/exit rules, a shelf-interaction heuristic, correlation
+into `POSSIBLE_UNPAID_EXIT`, experimental smoke/fire, and CPU-aware load
+shedding. No cloud. See `docs/phase2-ai.md` — including its limits.
+
+Person model: YOLOX (Apache-2.0). Download `yolox_nano.onnx` (and optionally
+`yolox_tiny.onnx`) from the official Megvii YOLOX 0.1.1rc0 release into
+`agent/models/person/`; the agent refuses any file whose SHA-256 doesn't
+match `app/ai/model_manager.py`. Never swap in an Ultralytics model without
+an enterprise licence (AGPL-3.0).
+
+Pose model (concealment only): `rtmpose-t_simcc-body7…zip` from
+download.openmmlab.com → `agent/models/pose/rtmpose-t-body7.onnx`.
+**Licence review required before commercial launch** — see
+`docs/phase2-ai.md`. Without it, concealment reports "unavailable" and all
+other protection runs normally.
+
+```bat
+agent\.venv\Scripts\python lab\dod.py   :: Phase 2 Definition of Done on real footage
+```
 
 ```
 boombiz-guard/

@@ -169,6 +169,98 @@ export interface Health {
   events: { event: string; camera_id: string; at: string }[];
 }
 
+// ── Phase 2 ───────────────────────────────────────────────────────────
+export type ZoneType = "SHELF" | "EXIT" | "RESTRICTED" | "CASHIER" | "STOCKROOM" | "FIRE_RISK" | "IGNORE" | "PRIVACY";
+export interface Pt {
+  x: number;
+  y: number;
+}
+export interface Zone {
+  id: string;
+  camera_id: string;
+  name: string;
+  zone_type: ZoneType;
+  polygon: Pt[];
+  enabled: boolean;
+  sensitivity: string;
+}
+export interface AiEvent {
+  id: string;
+  camera_id: string;
+  track_id: string | null;
+  event_type: string;
+  severity: string | null;
+  confidence: string | null;
+  zone_id: string | null;
+  metadata: Record<string, unknown>;
+  occurred_at: string;
+  feedback: string | null;
+}
+export interface TrackBox {
+  track_id: string;
+  state: string;
+  confidence: number;
+  bbox: { x1: number; y1: number; x2: number; y2: number };
+  zones: string[];
+}
+export interface Plan {
+  level: string;
+  primary_fps: number;
+  secondary_fps: number;
+  disabled_features: string[];
+  reduced: boolean;
+  message: string | null;
+}
+export interface AiCameraStatus {
+  camera_id: string;
+  name: string;
+  state: string;
+  target_fps: number;
+  ai_fps: number;
+  infer_ms: number;
+  lag_ms: number;
+  frames_dropped: number;
+  active_tracks: number;
+  features: string[];
+  failed_modules: string[];
+}
+export interface AiStatus {
+  running: boolean;
+  error: string | null;
+  device: string | null;
+  models: Record<string, string>;
+  performance: Plan;
+  cameras: AiCameraStatus[];
+}
+export interface AiDebug {
+  camera_id: string;
+  tracks: TrackBox[];
+  zones: Zone[];
+  status: AiCameraStatus;
+}
+export interface AiConfig {
+  person: boolean;
+  shelf: boolean;
+  exit: boolean;
+  restricted: boolean;
+  after_hours: boolean;
+  fire: boolean;
+  concealment: boolean;
+  priority: "PRIMARY" | "NORMAL";
+  fire_notice?: string;
+  concealment_notice?: string;
+}
+export interface DayHours {
+  day_of_week: number;
+  opens_at: string | null;
+  closes_at: string | null;
+  closed: boolean;
+}
+
+export const api2 = {
+  put: <T>(p: string, body: unknown) => request<T>("PUT", p, body),
+};
+
 export async function previewTicket(cameraId: string): Promise<string> {
   const r = await api.post<{ ticket: string }>(`/cameras/${cameraId}/preview-ticket`);
   return r.ticket;

@@ -4,6 +4,8 @@ __pycache__/
 .pytest_cache/
 node_modules/
 dist/
+# TypeScript incremental-build cache — changes on every build.
+*.tsbuildinfo
 build/
 *.spec.bak
 # Runtime data: the local DB holds DPAPI-encrypted credentials and must never
@@ -21,3 +23,7 @@ lab/run/
 auto.crt
 auto.key
 *.key
+
+# Model binaries: pinned by SHA-256 in app/ai/model_manager.py, fetched separately.
+agent/models/
+lab/clips/

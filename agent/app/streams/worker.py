@@ -89,6 +89,10 @@ class StreamWorker:
         self._stopping = False
         self._was_online = False
         self.frame_event = asyncio.Event()
+        # Phase 2: AI workers subscribe here and get every decoded JPEG with
+        # its capture time — the SAME stream the preview uses, so the camera
+        # never sees a second connection from Guard.
+        self.subscribers: list[Callable[[bytes, float], None]] = []
 
     # ── lifecycle ────────────────────────────────────────────────────
     def start(self) -> None:
@@ -227,6 +231,11 @@ class StreamWorker:
             await self._emit("CAMERA_RECONNECTED" if self.health.reconnect_count else "CAMERA_ONLINE")
         self.frame_event.set()
         self.frame_event.clear()
+        for cb in list(self.subscribers):
+            try:
+                cb(jpeg, now)
+            except Exception:  # a subscriber must never stall the stream
+                log.exception("frame subscriber failed")
 
     async def _watchdog(self) -> None:
         """A stream that stays connected but stops sending frames is offline too."""

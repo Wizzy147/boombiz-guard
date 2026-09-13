@@ -23,6 +23,7 @@ import {
   type TestPayload,
 } from "./api";
 import { CompatBadge, ErrorNote, Lockup, Screen, Snapshot, Spinner } from "./ui";
+import { AiTestView, EventsView, HoursView, ZonesView } from "./phase2";
 
 /*
  * The Phase 1 installer flow (§26): Welcome → PC check → Scan → Devices
@@ -30,7 +31,17 @@ import { CompatBadge, ErrorNote, Lockup, Screen, Snapshot, Spinner } from "./ui"
  * Connection test → Done. A Status view sits beside it for after setup.
  */
 
-type Step = "welcome" | "pc" | "scan" | "devices" | "channels" | "select" | "test" | "done" | "status";
+type Step =
+  | "welcome" | "pc" | "scan" | "devices" | "channels" | "select" | "test" | "done" | "status"
+  | "zones" | "aitest" | "events" | "hours";
+
+const TOOLS: { key: Step; label: string }[] = [
+  { key: "zones", label: "Zones" },
+  { key: "aitest", label: "Test AI" },
+  { key: "events", label: "Events" },
+  { key: "hours", label: "Hours" },
+  { key: "status", label: "Status" },
+];
 
 const FLOW: { key: Step; label: string }[] = [
   { key: "pc", label: "Computer" },
@@ -109,6 +120,10 @@ export default function App() {
       )}
       {step === "done" && <Done cameras={selected} onStatus={() => setStep("status")} />}
       {step === "status" && <Status cameras={cameras} refresh={refresh} />}
+      {step === "zones" && <ZonesView />}
+      {step === "aitest" && <AiTestView />}
+      {step === "events" && <EventsView />}
+      {step === "hours" && <HoursView />}
     </Shell>
   );
 }
@@ -120,10 +135,22 @@ function Shell({ step, setStep, children }: { step: Step; setStep: (s: Step) => 
     <div className="flex min-h-screen flex-col">
       <header className="bg-guard-ink text-white">
         <div className="mx-auto flex max-w-4xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
-          <Lockup />
-          <button type="button" onClick={() => setStep("status")} className="text-sm font-semibold text-white hover:text-guard-500">
-            Status
+          <button type="button" onClick={() => setStep("welcome")} aria-label="Setup">
+            <Lockup />
           </button>
+          <nav className="flex flex-wrap justify-end gap-x-4 gap-y-1" aria-label="Guard tools">
+            {TOOLS.map((t) => (
+              <button
+                key={t.key}
+                type="button"
+                onClick={() => setStep(t.key)}
+                aria-current={step === t.key ? "page" : undefined}
+                className={`text-sm font-semibold hover:text-guard-500 ${step === t.key ? "text-guard-500" : "text-white"}`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </nav>
         </div>
         {idx >= 0 && (
           <ol className="mx-auto flex max-w-4xl flex-wrap gap-x-4 gap-y-1 px-4 pb-3 text-xs sm:px-6" aria-label="Setup steps">

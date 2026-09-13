@@ -33,6 +33,20 @@ class Settings:
     rtsp_ports: tuple[int, ...] = (554, 8554, 10554)
     http_ports: tuple[int, ...] = (80, 8000, 8080, 443)
 
+    # Phase 2: which person model (see app/ai/model_manager.py MANIFEST).
+    person_model: str = os.environ.get("GUARD_PERSON_MODEL", "person-nano")
+    person_threshold: float = float(os.environ.get("GUARD_PERSON_THRESHOLD", "0.5"))
+    pose_model: str = os.environ.get("GUARD_POSE_MODEL", "pose-rtm-t")
+    ai_max_fps: float = float(os.environ.get("GUARD_AI_MAX_FPS", "10"))
+
+    @property
+    def models_dir(self) -> Path:
+        override = os.environ.get("GUARD_MODELS_DIR")
+        if override:
+            return Path(override)
+        installed = self.data_dir / "models"
+        return installed if installed.exists() else Path(__file__).resolve().parents[1] / "models"
+
     @property
     def db_path(self) -> Path:
         return self.data_dir / "guard.db"

@@ -19,7 +19,10 @@ from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
+from .ai.service import AIService
+from .api.ai_routes import ai_api
 from .api.routes import api, preview
+from .events.service import EventService
 from .api.security import LocalGuard, load_or_create_token
 from .config import Settings, settings as default_settings
 from .database.db import Database
@@ -50,6 +53,8 @@ def create_app(settings: Settings | None = None, *, db_path: str | None = None, 
     streams = StreamManager(lambda cid: holder["devices"].stream_url(cid), on_event)
     devices = DeviceService(db, vault, streams, settings)
     holder["devices"] = devices
+    ai_events = EventService(db)
+    ai = AIService(db, streams, ai_events, settings)
     token = load_or_create_token(settings)
 
     @asynccontextmanager
@@ -57,10 +62,15 @@ def create_app(settings: Settings | None = None, *, db_path: str | None = None, 
         streams.start()
         for cid in devices.guard_camera_ids():
             await streams.start_guard(cid)
+        # Local AI starts with the agent: a rebooted PC is protected again
+        # without anyone opening the setup UI. A model problem is reported in
+        # /ai/status, never a crash.
+        await ai.start()
         db.audit("agent_started", None, version=VERSION)
         log.info("Boombiz Guard %s ready — open http://127.0.0.1:%s/#t=<token from %s>",
                  VERSION, settings.port, settings.data_dir / "setup-token")
         yield
+        await ai.stop()
         await streams.shutdown()
 
     app = FastAPI(title="Boombiz Guard Agent", version=VERSION, lifespan=lifespan,
@@ -71,6 +81,9 @@ def create_app(settings: Settings | None = None, *, db_path: str | None = None, 
     app.state.streams = streams
     app.state.events = events
     app.state.local_guard = LocalGuard(settings, token)
+    app.state.ai = ai
+    app.state.ai_events = ai_events
+    app.include_router(ai_api)
     app.include_router(api)
     app.include_router(preview)
 

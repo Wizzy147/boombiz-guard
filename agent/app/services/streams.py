@@ -60,7 +60,7 @@ class StreamManager:
         preview = self._previews.pop(camera_id, None)
         if preview:
             await preview[0].stop()
-        w = StreamWorker(camera_id, url, on_event=self._on_event)
+        w = StreamWorker(camera_id, url, out_fps=10, on_event=self._on_event)
         self.guard[camera_id] = w
         w.start()
         return True

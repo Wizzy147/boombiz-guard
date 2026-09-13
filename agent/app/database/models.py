@@ -113,6 +113,75 @@ class AuditLog(Base):
     at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 
+class Zone(Base):
+    """Phase 2 §10. polygon_json holds NORMALISED points (§11)."""
+
+    __tablename__ = "zones"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: new_id("zone"))
+    camera_id: Mapped[str] = mapped_column(ForeignKey("cameras.id", ondelete="CASCADE"), nullable=False)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    # SHELF | EXIT | RESTRICTED | CASHIER | STOCKROOM | FIRE_RISK | IGNORE | PRIVACY
+    zone_type: Mapped[str] = mapped_column(String, nullable=False)
+    polygon_json: Mapped[str] = mapped_column(Text, nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    sensitivity: Mapped[str] = mapped_column(String, default="MEDIUM")  # LOW | MEDIUM | HIGH
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
+
+
+class Schedule(Base):
+    """Phase 2 §16. One row per weekday (0 = Monday). Times are local HH:MM."""
+
+    __tablename__ = "schedules"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: new_id("sch"))
+    location_id: Mapped[str] = mapped_column(String, nullable=False, default="loc_default")
+    day_of_week: Mapped[int] = mapped_column(Integer, nullable=False)
+    opens_at: Mapped[str | None] = mapped_column(String)
+    closes_at: Mapped[str | None] = mapped_column(String)
+    closed: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class AiEvent(Base):
+    """Phase 2 §30. Never holds a frame or an image — metadata only."""
+
+    __tablename__ = "ai_events"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: new_id("evt"))
+    camera_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    track_id: Mapped[str | None] = mapped_column(String)
+    event_type: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    severity: Mapped[str | None] = mapped_column(String)    # INFO | LOW | HIGH | CRITICAL
+    confidence: Mapped[str | None] = mapped_column(String)  # LOW | MEDIUM | HIGH
+    zone_id: Mapped[str | None] = mapped_column(String)
+    metadata_json: Mapped[str | None] = mapped_column(Text)
+    # §51 pilot feedback: ACCURATE | FALSE_EVENT | UNSURE
+    feedback: Mapped[str | None] = mapped_column(String)
+    feedback_note: Mapped[str | None] = mapped_column(String)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class CameraAiConfig(Base):
+    """Phase 2 §50 — per-camera feature switches."""
+
+    __tablename__ = "camera_ai_config"
+
+    camera_id: Mapped[str] = mapped_column(ForeignKey("cameras.id", ondelete="CASCADE"), primary_key=True)
+    person: Mapped[bool] = mapped_column(Boolean, default=True)
+    shelf: Mapped[bool] = mapped_column(Boolean, default=True)
+    exit: Mapped[bool] = mapped_column(Boolean, default=True)
+    restricted: Mapped[bool] = mapped_column(Boolean, default=True)
+    after_hours: Mapped[bool] = mapped_column(Boolean, default=True)
+    fire: Mapped[bool] = mapped_column(Boolean, default=False)  # experimental heuristic → OFF
+    # §33 experimental. ON by default (user decision 2026-09-13); always LOW
+    # confidence and the first feature paused under CPU load.
+    concealment: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Exit/security-critical cameras keep more FPS under load (§6).
+    priority: Mapped[str] = mapped_column(String, default="NORMAL")  # PRIMARY | NORMAL
+
+
 class Setting(Base):
     __tablename__ = "settings"
 

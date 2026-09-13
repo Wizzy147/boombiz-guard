@@ -62,8 +62,11 @@ LOCK_AFTER = 5  # like a real recorder: 5 bad logins and the account locks
 STREAMS = [
     ("hik-ch1-main", f"{HIK_IP}:8554", "Streaming/Channels/101", "960x540", 12, "testsrc2"),
     ("hik-ch1-sub", f"{HIK_IP}:8554", "Streaming/Channels/102", "480x270", 8, "testsrc2"),
-    ("hik-ch2-main", f"{HIK_IP}:8554", "Streaming/Channels/201", "960x540", 12, "smptebars"),
-    ("hik-ch2-sub", f"{HIK_IP}:8554", "Streaming/Channels/202", "480x270", 8, "smptebars"),
+    # Phase 2: "Product Shelves" plays real people (a Pexels shop clip, looped)
+    # so the AI pipeline sees actual shoppers. Falls back to a test pattern if
+    # lab/clips is empty. The sub stream is what Guard analyses.
+    ("hik-ch2-main", f"{HIK_IP}:8554", "Streaming/Channels/201", "960x540", 12, "clip:shop-4750083.mp4"),
+    ("hik-ch2-sub", f"{HIK_IP}:8554", "Streaming/Channels/202", "640x360", 10, "clip:shop-4750083.mp4"),
     ("onvif-main", f"{ONVIF_IP}:554", "onvif/main", "960x540", 12, "rgbtestsrc"),
     ("onvif-sub", f"{ONVIF_IP}:554", "onvif/sub", "480x270", 8, "rgbtestsrc"),
     ("generic-main", f"{GENERIC_IP}:554", "stream1", "960x540", 12, "yuvtestsrc"),
@@ -126,9 +129,15 @@ async def run_publisher(name: str, hostport: str, path: str, size: str, fps: int
         if until > now:
             await asyncio.sleep(until - now)
             continue
+        if pattern.startswith("clip:") and (LAB / "clips" / pattern[5:]).exists():
+            w, h = size.split("x")
+            source = ["-stream_loop", "-1", "-re", "-i", str(LAB / "clips" / pattern[5:]),
+                      "-vf", f"scale={w}:{h},fps={fps}", "-an"]
+        else:
+            pat = "smptebars" if pattern.startswith("clip:") else pattern
+            source = ["-re", "-f", "lavfi", "-i", f"{pat}=size={size}:rate={fps}"]
         proc = await asyncio.create_subprocess_exec(
-            FFMPEG, "-hide_banner", "-loglevel", "error", "-re",
-            "-f", "lavfi", "-i", f"{pattern}=size={size}:rate={fps}",
+            FFMPEG, "-hide_banner", "-loglevel", "error", *source,
             "-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency",
             "-g", str(fps * 2), "-pix_fmt", "yuv420p",
             "-f", "rtsp", "-rtsp_transport", "tcp", url,
