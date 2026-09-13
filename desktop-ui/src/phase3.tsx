@@ -633,10 +633,14 @@ export function AlarmsView() {
 interface CloudStatus {
   paired: boolean;
   business_name: string | null;
+  location_name: string | null;
   online: boolean | null;
   last_error: string | null;
   pairing_code: string | null;
   pairing_expires_at: string | null;
+  health_status: "ONLINE" | "DEGRADED" | "OFFLINE" | "UNKNOWN" | null;
+  health_reasons: string[];
+  last_heartbeat_at: string | null;
   queued: number;
   cloud_url: string;
 }
@@ -646,6 +650,7 @@ function PhoneAlertsSection({ canLink }: { canLink: boolean }) {
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [now, setNow] = useState(Date.now());
+  const [code, setCode] = useState("");
   const load = useCallback(async () => {
     try {
       setSt(await api.get<CloudStatus>("/cloud/status"));
@@ -682,23 +687,49 @@ function PhoneAlertsSection({ canLink }: { canLink: boolean }) {
     }
   }
   async function unpair() {
-    if (!window.confirm("Stop sending alerts from this computer to phones?")) return;
+    if (!window.confirm("Disconnect this computer from Boombiz? Phone alerts and remote monitoring stop. Guard keeps protecting the shop locally.")) return;
     await api.post("/cloud/unpair");
     await load();
   }
+  async function activate() {
+    setBusy(true);
+    setErr(null);
+    try {
+      await api.post("/cloud/activate", { code });
+      setCode("");
+      await load();
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  const codeChars = code.toUpperCase().replace(/^GARD[\s-]*/, "").replace(/[^A-Z0-9]/g, "").length;
 
   return (
     <section className="card mt-4 p-4">
-      <h2 className="font-bold text-guard-ink">Phone alerts</h2>
+      <h2 className="font-bold text-guard-ink">Boombiz cloud</h2>
       {!st ? (
         <Spinner />
       ) : st.paired ? (
         <div className="mt-1 space-y-2 text-sm text-guard-ink">
-          <p className="font-semibold text-emerald-800">Linked to {st.business_name ?? "your business"}.</p>
+          <p className="font-semibold text-emerald-800">
+            Connected to {st.business_name ?? "your business"}{st.location_name ? ` — ${st.location_name}` : ""}.
+          </p>
           <p>
-            High and critical incidents go to the phones that turned on alerts at {site}.
+            High and critical incidents go to the phones that turned on alerts at {site}, and the owner can see this
+            computer's health there.
             {st.online === false ? " This computer is offline right now — alerts are waiting and will send when it's back." : ""}
           </p>
+          {st.health_status === "DEGRADED" && st.health_reasons.length > 0 && (
+            <div className="border-l-4 border-amber-500 bg-amber-50 px-3 py-2 text-guard-ink">
+              <p className="font-semibold">Boombiz shows this location as degraded:</p>
+              <ul className="list-disc pl-5">{st.health_reasons.map((r) => <li key={r}>{r}</li>)}</ul>
+            </div>
+          )}
+          {st.last_heartbeat_at && (
+            <p className="text-slate-700">Last check-in with Boombiz: {new Date(st.last_heartbeat_at).toLocaleTimeString()}.</p>
+          )}
           {st.queued > 0 && <p>{st.queued} alert{st.queued === 1 ? "" : "s"} waiting to send.</p>}
           {canLink && <button type="button" className="btn-outline" onClick={unpair}>Unlink this computer</button>}
         </div>
@@ -716,14 +747,33 @@ function PhoneAlertsSection({ canLink }: { canLink: boolean }) {
         </div>
       ) : (
         <div className="mt-1 space-y-2 text-sm text-guard-ink">
-          <p>Send high and critical incidents to the owner's and manager's phones. Needs internet on this computer; alerts wait here while it's offline.</p>
+          <p>
+            Connect this computer to Boombiz so high and critical incidents reach the owner's and manager's phones and
+            the owner can check it remotely. Needs internet; alerts wait here while it's offline. Guard protects the shop
+            locally either way.
+          </p>
           {st.last_error && <p className="text-red-800">{st.last_error}</p>}
           {canLink ? (
-            <button type="button" className="btn-primary" disabled={busy} onClick={pair}>
-              {busy ? <Spinner /> : waiting ? "Get a new code" : "Link to phone alerts"}
-            </button>
+            <>
+              <div>
+                <label htmlFor="gard-code" className="mb-1 block font-semibold">Activation code</label>
+                <p className="mb-2 text-slate-700">Made in Boombiz Guard → Locations → Activate a Guard computer.</p>
+                <div className="flex flex-wrap gap-2">
+                  <input id="gard-code" value={code} onChange={(e) => setCode(e.target.value.toUpperCase())}
+                         placeholder="GARD-XXXX-XXXX" maxLength={16} autoCapitalize="characters" autoComplete="off"
+                         className="input w-52 font-mono" />
+                  <button type="button" className="btn-primary" disabled={busy || codeChars !== 8} onClick={activate}>
+                    {busy ? <Spinner /> : "Activate"}
+                  </button>
+                </div>
+              </div>
+              <p className="pt-1 text-slate-700">No activation code? The owner can link this computer from their phone instead:</p>
+              <button type="button" className="btn-outline" disabled={busy} onClick={pair}>
+                {waiting ? "Get a new phone code" : "Link with the owner's phone"}
+              </button>
+            </>
           ) : (
-            <p className="text-slate-700">Sign in as the owner to link phone alerts.</p>
+            <p className="text-slate-700">Sign in as the owner to connect this computer to Boombiz.</p>
           )}
         </div>
       )}

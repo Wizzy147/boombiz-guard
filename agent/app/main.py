@@ -26,6 +26,7 @@ from .api.ai_routes import ai_api
 from .api.incident_routes import inc_api, media_api
 from .api.notify_routes import notify_api
 from .cloud.client import CloudLink
+from .cloud.heartbeat import HEARTBEAT_SECONDS, Heartbeat, collect_health
 from .database.models import Setting
 from .notify.feed import feed as notify_feed
 from .buffer.segment_manager import BufferManager
@@ -47,7 +48,7 @@ from .services.streams import StreamManager
 log = logging.getLogger("guard")
 
 UI_DIST = Path(__file__).resolve().parents[2] / "desktop-ui" / "dist"
-VERSION = "0.3.0-phase3"
+VERSION = "0.4.0-phase4a"
 
 
 def create_app(settings: Settings | None = None, *, db_path: str | None = None, cipher=None) -> FastAPI:  # noqa: ANN001
@@ -94,6 +95,7 @@ def create_app(settings: Settings | None = None, *, db_path: str | None = None, 
 
     # ── pop-up notifications: phones via the Boombiz cloud (outbound only) ──
     cloud = CloudLink(db, cipher)
+    heartbeat = Heartbeat(cloud, lambda: collect_health(db, streams, ai, cloud, VERSION))
 
     def feed_to_outbox() -> None:
         """Copy new pop-up-worthy items into the cloud outbox. Cursor persisted,
@@ -140,6 +142,7 @@ def create_app(settings: Settings | None = None, *, db_path: str | None = None, 
             asyncio.create_task(periodic("notify feed → outbox", 5, feed_to_outbox, 5)),
             asyncio.create_task(periodic("cloud flush", 10, cloud.flush, 8)),
             asyncio.create_task(periodic("cloud status", 60, cloud.refresh, 3)),
+            asyncio.create_task(periodic("cloud heartbeat", HEARTBEAT_SECONDS, heartbeat.beat, 15)),
         ]
         db.audit("agent_started", None, version=VERSION)
         log.info("Boombiz Guard %s ready — open http://127.0.0.1:%s/#t=<token from %s>",

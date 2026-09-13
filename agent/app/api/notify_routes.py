@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel, Field
 
 from ..cloud.client import CloudError
 from ..notify.feed import feed
@@ -38,6 +39,21 @@ async def cloud_pair(r: Request) -> dict:
     try:
         return await r.app.state.cloud.start_pairing(r.app.state.incidents.location_code() + " Guard PC",
                                                      r.app.state.version)
+    except CloudError as e:
+        raise HTTPException(400, str(e)) from None
+
+
+class ActivateBody(BaseModel):
+    code: str = Field(min_length=8, max_length=20)
+
+
+@notify_api.post("/cloud/activate")
+async def cloud_activate(r: Request, body: ActivateBody) -> dict:
+    """Redeem an installer activation code (GARD-XXXX-XXXX) made in Boombiz Guard."""
+    require(_role(r), "configure_retention")  # owner, or the installer at setup
+    try:
+        return await r.app.state.cloud.activate(body.code, r.app.state.incidents.location_code() + " Guard PC",
+                                                r.app.state.version)
     except CloudError as e:
         raise HTTPException(400, str(e)) from None
 
