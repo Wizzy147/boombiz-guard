@@ -315,6 +315,19 @@ def test_cap_never_skips_kept_evidence(env):
     assert "critical or kept" in sync.status()["warning"]
 
 
+def test_paused_subscription_keeps_media_waiting_not_failed():
+    from app.cloud.sync import PAUSED_RETRY_S, _classify
+
+    class R:
+        status_code = 402
+
+        def json(self):
+            return {"error": "Cloud alerts and remote monitoring are paused.", "paused": True}
+
+    kind, msg, delay = _classify(R())
+    assert kind == "retry" and delay == PAUSED_RETRY_S == 3600 and "paused" in msg
+
+
 def test_shrink_clip_falls_back_to_original_when_ffmpeg_cant_read_it():
     from app.media.compress import shrink_clip
 

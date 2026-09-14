@@ -8,7 +8,7 @@ call is ever on the path of detection, incident capture or the local alarm.
 | 4A | Device cloud & authentication: activation codes, device secret → access tokens, heartbeats, remote health, offline detection, revoke | **Built** (this doc) |
 | 4B | Incident sync & media: priority sync queue, idempotent incident API, snapshot + ≤15 s clip upload to a private bucket, retention | **Built** |
 | 4C | Notifications: recipients, rules, WhatsApp (Meta Cloud API) + email, dedupe, retries, signed incident links, acknowledge | **Built** (see "4C" below) |
-| 4D | Multi-store, RBAC, audit UI, health alerts, subscription state (admin-set; Paystack later), hardening | — |
+| 4D | Multi-store, RBAC, audit UI, health alerts, subscription state (admin-set; Paystack later), hardening | **Built** (see "4D" below) |
 
 Decisions: keep phone pairing AND add installer codes · incident media goes to a **new private bucket**
 (4B) · subscription is state-only for now, activated by a super-admin (4D).
@@ -144,6 +144,37 @@ Meta's webhook (status stays SENT, not DELIVERED), attached snapshot images.
 
 **To go live (4C):** `prisma db push` (GuardRecipient, GuardNotification, GuardIncidentLink); deploy; submit the 4
 templates and set `BOOMBIZ_GUARD_WA_TEMPLATE_*` in Amplify when approved (email works before that); agent 0.4.2.
+
+## 4D — roles, branches, subscription, installer passes, audit
+
+Decisions (2026-09-14): Guard role per person set by the owner; 7-day grace; 30-day trial from the first Guard PC;
+installers are Boombiz staff with a 24-hour pass from the internal console.
+
+**Roles** (`lib/guard/access.ts`, unit-tested): OWNER (Boombiz owner — everything, every branch) · MANAGER
+(incidents, clips, acknowledge, recipients, Guard PCs, audit, plan) · SECURITY (incidents, clips, acknowledge,
+health) · VIEWER (incidents + snapshots only). Owner sets role + branches per staff member on **People**
+(`GuardMember`); without one a Boombiz MANAGER is a Guard manager at their location and STAFF a viewer at theirs.
+Every signed-in Guard API route resolves the viewer through `guardUser()` and filters by business + branch list
+server-side; a static test fails if a route skips it (tenant isolation §65). Recipients' phones/emails are owner/
+manager only; clips are hidden from viewers; revoking a Guard PC and managing people stay owner-only.
+
+**Subscription** (`GuardSubscription`, `lib/guard/subscription.ts`): TRIAL (30 days from the first Guard PC
+activation/pairing) → ACTIVE (paid-until recorded by a super-admin in the internal console; months stack) → GRACE
+(7 days, banner + one owner email) → EXPIRED (one owner email). EXPIRED pauses WhatsApp/email, phone buzz except fire,
+the remote dashboard (incidents, health) and cloud clip uploads (402; the PC keeps files and retries hourly without
+using up retries). The shop PC's detection, clips and alarms never depend on it. Viewing the console never starts
+the trial. Owners see **Plan** (§112–113 wording).
+
+**Installer passes** (`GuardInstallerPass`, internal console → Boombiz Guard): a manager/super-admin gives an agent,
+BDO or manager 24 hours on one business; the installer creates activation codes and checks Guard PCs, nothing else;
+owner (People) or admins extend/revoke; actions audited as "Name (Boombiz)".
+
+**Audit** tab (owner/manager): every Guard action in plain words — devices, incidents, links, recipients, roles,
+installer passes, payments, warnings — with who did it; branch-limited managers see their branches' PCs and their own
+actions.
+
+**Not in 4D:** online payment (Paystack) for the subscription, escalation chains, agent auto-update (§100–101),
+per-request replay nonces (access tokens are 30-min and every write is idempotent instead).
 
 ## §98 Internet use (bandwidth modes) and §99 backlog cap
 

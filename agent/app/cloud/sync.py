@@ -51,6 +51,7 @@ UPSERT, SNAPSHOT, CLIP = "INCIDENT_UPSERT", "SNAPSHOT_UPLOAD", "CLIP_UPLOAD"
 BACKOFF = (5, 15, 30, 60, 120, 300)
 MEDIA_MAX_ATTEMPTS = 8
 NOT_READY_RETRY_S = 300  # cloud without incident sync yet (404)
+PAUSED_RETRY_S = 3600    # subscription paused (402): files wait, nothing is dropped
 
 # §17 order ×10, leaving room for the types the spec doesn't list: restricted
 # area goes after unpaid exits and before health (§50's example order).
@@ -267,7 +268,10 @@ class SyncQueue:
                     retried += 1
                     break
                 elif kind == "retry":
-                    self._retry(jid, outcome[1], now, delay=outcome[2] if len(outcome) > 2 else None, media=op != UPSERT)
+                    paused = len(outcome) > 2 and outcome[2] == PAUSED_RETRY_S
+                    # A paused plan isn't a failed upload: don't let it use up the media retries.
+                    self._retry(jid, outcome[1], now, delay=outcome[2] if len(outcome) > 2 else None,
+                                media=op != UPSERT and not paused)
                     retried += 1
                 else:
                     self._fail(jid, outcome[1])
@@ -397,6 +401,9 @@ def _classify(r: httpx.Response) -> tuple:
         return ("done",)
     if r.status_code == 401:
         return ("auth",)
+    if r.status_code == 402:
+        # Guard cloud subscription paused: keep the file here and try again later.
+        return ("retry", _err(r, "Cloud storage is paused until the Guard plan is renewed."), PAUSED_RETRY_S)
     if r.status_code == 404:
         return ("retry", "Boombiz isn't ready for incident sync yet.", NOT_READY_RETRY_S)
     if r.status_code in (408, 409, 425, 429) or r.status_code >= 500:
