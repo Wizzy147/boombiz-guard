@@ -72,7 +72,11 @@ Samples: `{{1}}` OWR Guard PC · `{{2}}` Owerri Branch · `{{3}}` 1:28 PM
 
 **Body**
 ```
-Boombiz Guard protection at {{1}} has been restored. {{2}}
+Boombiz Guard protection at {{1}} has been restored.
+
+{{2}}
+
+Guard is watching your cameras again. Open Guard to check everything is working.
 ```
 Samples: `{{1}}` Aba Branch · `{{2}}` 2 of 2 cameras online.
 
