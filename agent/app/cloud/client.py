@@ -28,6 +28,7 @@ import json
 import logging
 import os
 import platform
+import time
 from datetime import datetime, timedelta, timezone
 
 import httpx
@@ -45,6 +46,10 @@ BACKOFF = (5, 15, 30, 60, 120, 300)
 # PRD §39 — after a long outage: HIGH alerts older than this go to the
 # dashboard only (no phone buzz); CRITICAL always buzzes.
 STALE_PUSH_MINUTES = 60
+# A linked PC re-asks "am I still linked?" at most this often; heartbeats
+# (every 2 min) answer it in between. Revocation still shows at once: the
+# next heartbeat or token refresh fails sign-in.
+LINKED_CHECK_SECONDS = 15 * 60
 
 
 class CloudError(Exception):
@@ -64,6 +69,7 @@ class CloudLink:
         self.cipher = cipher or default_cipher()
         self.base = (base_url or DEFAULT_CLOUD).rstrip("/")
         self.auth = DeviceAuth(self)
+        self._last_link_check = float("-inf")
         self.state: dict = {"paired": False, "business_name": None, "location_name": None, "online": None,
                             "last_error": None, "pairing_code": None, "pairing_expires_at": None,
                             "health_status": None, "health_reasons": [], "last_heartbeat_at": None}
@@ -169,6 +175,7 @@ class CloudLink:
                 d = r.json()
                 self.state.update(paired=bool(d.get("paired")), business_name=d.get("business_name"), online=True,
                                   last_error=None)
+                self.mark_link_checked()
                 if d.get("paired"):
                     self.state.update(pairing_code=None, pairing_expires_at=None)
             else:
@@ -178,6 +185,19 @@ class CloudLink:
         except httpx.HTTPError:
             self.state.update(online=False)
         return self.state
+
+    def mark_link_checked(self) -> None:
+        self._last_link_check = time.monotonic()
+
+    async def refresh_if_due(self) -> dict:
+        """The 60 s loop calls this. Not linked yet (or pairing code on screen):
+        ask every time, so a phone claim shows up fast. Linked: heartbeats
+        already carry the link state, so only ask when nothing has confirmed
+        it for 15 min — saves most of this PC's cloud requests."""
+        linked = self.state.get("paired") and not self.state.get("pairing_code")
+        if linked and time.monotonic() - self._last_link_check < LINKED_CHECK_SECONDS:
+            return self.state
+        return await self.refresh()
 
     # ── outbox ───────────────────────────────────────────────────────
     def enqueue_alert(self, item: dict) -> None:

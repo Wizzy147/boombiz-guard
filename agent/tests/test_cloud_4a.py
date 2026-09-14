@@ -58,8 +58,9 @@ async def device_auth(req: Request):
         return JSONResponse({"error": "This credential belongs to another computer."}, status_code=401)
     tok = f"ga_tok{C['auth_calls']}"
     C["tokens"].add(tok)
-    return {"access_token": tok, "expires_in": 1800, "paired": True, "business_name": "Digital Pharmacy",
-            "location_name": "Owerri Branch"}
+    paired = C.get("paired", True)
+    return {"access_token": tok, "expires_in": 1800, "paired": paired,
+            "business_name": "Digital Pharmacy" if paired else None, "location_name": "Owerri Branch" if paired else None}
 
 
 def _access_ok(req: Request) -> bool:
@@ -78,15 +79,18 @@ async def heartbeat(device_id: str, req: Request):
     if not _access_ok(req):
         return JSONResponse({"error": "Unknown device."}, status_code=401)
     C["heartbeats"].append({"device_id": device_id, "auth": req.headers["authorization"], **(await req.json())})
-    return {"status": "ONLINE", "reasons": [], "next_heartbeat_seconds": 120, "commands": []}
+    return {"status": "ONLINE", "reasons": [], "paired": True, "business_name": "Digital Pharmacy",
+            "location_name": "Owerri Branch", "next_heartbeat_seconds": 120, "commands": []}
 
 
 @fake.get("/api/guard/v1/device")
 async def device(req: Request):
+    C["device_checks"] = C.get("device_checks", 0) + 1
     h = req.headers.get("authorization", "")
     if not (_access_ok(req) or (C["legacy"] and h == f"Bearer {SECRET}")):
         return JSONResponse({"error": "Unknown device."}, status_code=401)
-    return {"paired": True, "business_name": "Digital Pharmacy"}
+    paired = C.get("paired", True)
+    return {"paired": paired, "business_name": "Digital Pharmacy" if paired else None}
 
 
 @fake.post("/api/guard/v1/alerts")
@@ -216,6 +220,29 @@ def test_secret_copied_to_another_pc_is_refused(db, cloud_url, tmp_path):
     link2._store_secret("gd_dev1", SECRET)
     asyncio.run(link2.refresh())
     assert link2.state["paired"] is False and "another computer" in link2.state["last_error"]
+
+
+def test_linked_pc_skips_the_minute_link_check_while_heartbeats_answer_it(db, cloud_url):
+    link = activated(db, cloud_url)
+    hb = Heartbeat(link, lambda: {"agent_version": "0.4.1"})
+    asyncio.run(hb.beat())
+    assert link.state["paired"] and link.state["location_name"] == "Owerri Branch"
+    for _ in range(10):  # ten minutes of the 60 s loop
+        asyncio.run(link.refresh_if_due())
+    assert C.get("device_checks", 0) == 0
+    link._last_link_check -= 16 * 60  # nothing confirmed the link for 16 min → ask once
+    asyncio.run(link.refresh_if_due())
+    assert C["device_checks"] == 1
+
+
+def test_unlinked_pc_still_checks_every_time(db, cloud_url):
+    C["paired"] = False  # the owner hasn't typed the code on their phone yet
+    link = CloudLink(db, CIPHER, cloud_url)
+    link._store_secret("gd_dev1", SECRET)
+    link.state.update(pairing_code="ABCD-EFGH", paired=False)  # waiting for the owner's phone
+    asyncio.run(link.refresh_if_due())
+    asyncio.run(link.refresh_if_due())
+    assert C["device_checks"] == 2
 
 
 def test_old_cloud_without_device_auth_falls_back_to_secret(db, cloud_url):

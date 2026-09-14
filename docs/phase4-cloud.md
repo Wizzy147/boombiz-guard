@@ -133,7 +133,11 @@ serves it from DynamoDB table `boombiz-{env}-guard-device` (`lib/guard/deviceSto
 - Postgres is now touched only by real events (incidents, pairing, someone opening the dashboard).
 - Routine token refreshes are no longer audited (they would be Postgres writes twice an hour per PC);
   activation, pairing, revoke, offline/restored still are.
-- Cost: a few cents per PC per month (on-demand, ~70k writes/PC/month incl. the index).
+- Cost: ~$0.20 per PC per month in DynamoDB (on-demand; ~130k write units incl. the index).
+- **Link check folded into the heartbeat (agent 0.4.1):** the heartbeat response carries `paired`,
+  `business_name`, `location_name`. A linked PC calls `GET /v1/device` at most every 15 min; an unlinked one
+  (pairing code waiting) still every 60 s. Revocation still shows at once — the next heartbeat or token
+  refresh fails sign-in. Cuts each PC's cloud requests by about two-thirds (~66k → ~24k a month).
 
 ## Production status
 

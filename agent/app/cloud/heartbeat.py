@@ -101,4 +101,10 @@ class Heartbeat:
         d = r.json()
         self.link.state.update(health_status=d.get("status"), health_reasons=d.get("reasons", []),
                                last_heartbeat_at=datetime.now(timezone.utc).isoformat())
+        if "paired" in d:  # the heartbeat doubles as the link check
+            self.link.state.update(paired=bool(d["paired"]), business_name=d.get("business_name"),
+                                   location_name=d.get("location_name"), last_error=None)
+            if d["paired"]:
+                self.link.state.update(pairing_code=None, pairing_expires_at=None)
+            self.link.mark_link_checked()
         return d

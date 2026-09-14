@@ -143,7 +143,9 @@ def create_app(settings: Settings | None = None, *, db_path: str | None = None, 
             asyncio.create_task(periodic("db integrity", 24 * 3600, integrity, 60)),
             asyncio.create_task(periodic("notify feed → outbox", 5, feed_to_outbox, 5)),
             asyncio.create_task(periodic("cloud flush", 10, cloud.flush, 8)),
-            asyncio.create_task(periodic("cloud status", 60, cloud.refresh, 3)),
+            # Every 60 s only while not linked; once linked, heartbeats carry the
+            # link state and this asks at most every 15 min (cloud/client.py).
+            asyncio.create_task(periodic("cloud status", 60, cloud.refresh_if_due, 3)),
             asyncio.create_task(periodic("cloud heartbeat", HEARTBEAT_SECONDS, heartbeat.beat, 15)),
             asyncio.create_task(periodic("incident sync scan", 5, sync.scan, 6)),
             asyncio.create_task(periodic("incident sync", 5, sync.process, 9)),
