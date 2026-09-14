@@ -108,6 +108,13 @@ def test_theft_and_swap_sound_the_alarm_by_default(tmp_path):
     assert "POSSIBLE_CONCEALMENT" not in on  # always LOW, never alarms on its own
 
 
+def test_every_theft_exit_sounds_the_alarm():
+    from app.alarms.service import DEFAULT_RULES
+
+    cool = {t: c for t, _, _, c, _ in DEFAULT_RULES}
+    assert cool["POSSIBLE_UNPAID_EXIT"] == 0  # no siren pause between exits
+
+
 def test_swap_pops_up_on_the_pc_and_phone():
     from app.notify.feed import GROUPS
 

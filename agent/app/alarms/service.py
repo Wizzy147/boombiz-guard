@@ -46,8 +46,12 @@ log = logging.getLogger(__name__)
 # any external relay alarm. Short (3–5 s) so a false alert is a beep, not a
 # scene; switch any off in Alarm settings. Concealment stays off: it's always
 # LOW and never alerts on its own. Rules seed only when missing.
+#
+# Theft exits have NO cooldown (owner decision 2026-09-14): the site promises
+# every suspected theft exit sounds the store's CCTV alarm, so back-to-back
+# exits each fire the siren.
 DEFAULT_RULES = [
-    ("POSSIBLE_UNPAID_EXIT", True, 3, 30, False),
+    ("POSSIBLE_UNPAID_EXIT", True, 3, 0, False),
     ("POSSIBLE_PRODUCT_REPLACEMENT", True, 3, 30, False),
     ("POSSIBLE_CONCEALMENT", False, 3, 30, False),
     ("RESTRICTED_AREA_INCIDENT", True, 5, 30, False),
@@ -75,6 +79,11 @@ class AlarmService:
                 if t not in have:
                     s.add(AlarmRule(incident_type=t, enabled=enabled, duration_seconds=dur,
                                     cooldown_seconds=cool, repeat_until_ack=repeat))
+            # Installs seeded before the no-cooldown decision still carry the old
+            # 30 s default; move those to 0. A value the store chose is left alone.
+            for r in s.scalars(select(AlarmRule).where(AlarmRule.incident_type == "POSSIBLE_UNPAID_EXIT",
+                                                       AlarmRule.cooldown_seconds == 30)):
+                r.cooldown_seconds = 0
             if not s.scalar(select(AlarmOutput).where(AlarmOutput.kind == "PC_SOUND")):
                 s.add(AlarmOutput(name="This computer's speaker", kind="PC_SOUND"))
 

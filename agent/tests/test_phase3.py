@@ -312,6 +312,14 @@ async def test_alarm_cooldown_failure_and_fire_repeat(stack):
     stack.svc.on_ai_event(evt("AFTER_HOURS_PERSON", cam="cam2"))
     second = next(i.id for i in incidents(stack) if i.id != first)
     assert await stack.alarms.on_incident(second) == "COOLDOWN"          # recorded, siren quiet
+    # Theft exits have no cooldown: back-to-back exits each sound the siren.
+    FakeAdapter.calls = []
+    for t in ("e1", "e2"):
+        stack.svc.on_ai_event(evt("POSSIBLE_UNPAID_EXIT", track=t))
+    exits = [i.id for i in incidents(stack) if i.incident_type == "POSSIBLE_UNPAID_EXIT"]
+    for eid in exits:
+        assert await stack.alarms.on_incident(eid) == "TRIGGERED"
+    assert len(FakeAdapter.calls) == len(exits) >= 2
     # A failing output: incident still exists, failure is recorded.
     FakeAdapter.fail = True
     stack.svc.on_ai_event(evt("POSSIBLE_SMOKE", track=None))
