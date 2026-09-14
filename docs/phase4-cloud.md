@@ -112,7 +112,34 @@ first. Never skipped: CRITICAL, fire/smoke, or kept evidence — if those alone 
 and the PC says so. Incident details are never skipped. The PC shows a plain warning; the cloud Locations page
 shows Low / Details-only mode from the heartbeat.
 
+## Keeping Neon asleep — Guard's hot path is DynamoDB
+
+Guard PCs heartbeat every 2 min, re-check their link every 60 s and refresh their token every ~30 min. From
+Postgres that traffic would stop Neon's compute from ever suspending (always-on bill). So the Boombiz app
+serves it from DynamoDB table `boombiz-{env}-guard-device` (`lib/guard/deviceStore.ts`):
+
+| Item | Used by |
+|---|---|
+| `device#<id>` / DEVICE — copy of the Postgres device row | device/auth, /v1/device, heartbeat, incident routes |
+| `secret#<hash>` / SECRET → device id | device/auth (secret lookup) |
+| `device#<id>` / LATEST — last heartbeat, offlineNotifiedAt; GSI `heartbeat-index` | dashboard health, offline cron |
+| `device#<id>` / `H#<iso>` — health sample ≤1 per 5 min, TTL 14 days | 24 h health history |
+
+- Postgres stays the source of truth. Every device change (pair/start, claim, activate, rename/move) re-mirrors;
+  a missing or not-yet-linked copy falls back to Postgres once and re-mirrors itself (covers older PCs).
+- **Revoke writes DynamoDB first**; if that fails the revoke fails — a revoked PC can never keep signing in.
+- The guard-health cron queries DynamoDB every 10 min and touches Postgres only when a PC actually went quiet
+  (to push + audit); media/code/unclaimed cleanup runs once a day (03:00 Lagos, or `?housekeeping=1`).
+- Postgres is now touched only by real events (incidents, pairing, someone opening the dashboard).
+- Routine token refreshes are no longer audited (they would be Postgres writes twice an hour per PC);
+  activation, pairing, revoke, offline/restored still are.
+- Cost: a few cents per PC per month (on-demand, ~70k writes/PC/month incl. the index).
+
 ## Production status
+
+- ✅ DynamoDB table **boombiz-prod-guard-device** created 2026-09-14 (on-demand, `heartbeat-index` GSI, TTL on
+  `expiresAt`). Verified end to end with the app's deviceStore: heartbeat + sampling, latest read, history,
+  quiet-device query, one-time offline claim, restored flag, cleanup.
 
 - ✅ Bucket **boombiz-prod-guard-media** created 2026-09-13 (eu-west-1, account 065634457453): all public access
   blocked, SSE AES256 + bucket key, BucketOwnerEnforced, abort-incomplete-multipart after 1 day, tagged
@@ -120,7 +147,8 @@ shows Low / Details-only mode from the heartbeat.
   refused (400), HEAD size+SHA-256 match, signed GET returns the bytes, anonymous GET 403, delete ok.
 - ✅ Schema pushed to production Neon 2026-09-13 (4A + 4B: GuardDevice columns, GuardActivationCode,
   GuardDeviceHealth, GuardAuditLog, GuardIncident, GuardIncidentMedia). Diff was Guard-only; drift check now empty.
-- ⬜ Set `BOOMBIZ_GUARD_TOKEN_SECRET` in Amplify (merge — UpdateApp replaces the whole env map).
+- ✅ `BOOMBIZ_GUARD_TOKEN_SECRET` set in Amplify 2026-09-13 (64-char random, app level; merged 85 → 86 keys,
+  none lost or changed). Takes effect on the next build.
 - ⬜ Deploy the Boombiz app.
 - ⬜ `npx tsx scripts/provision-cron.ts` (boombiz-guard-health).
 - ⬜ Install agent 0.4.1 on the Guard PC.
