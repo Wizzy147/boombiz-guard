@@ -116,6 +116,15 @@ class Correlator:
                 out.append(EventDraft(cam, "UNRESOLVED_SHELF_INTERACTION", it.track_id, it.shelf_zone_id, "LOW",
                                       "MEDIUM" if it.strength == "STRONG" else "LOW",
                                       metadata=it.to_dict(), dedup_ttl=1.0))
+                # Something different left where a product was: alert now, not only
+                # if they walk out (they may be staying to pay for the cheap one).
+                if it.verdict == "REPLACED":
+                    conf = "MEDIUM" if it.strength == "STRONG" else "LOW"
+                    out.append(EventDraft(cam, "POSSIBLE_PRODUCT_REPLACEMENT", it.track_id, it.shelf_zone_id,
+                                          "HIGH" if conf != "LOW" else "LOW", conf,
+                                          metadata={**it.to_dict(),
+                                                    "note": "A different item was left where a product was. "
+                                                            "Review the clip — this is not an accusation."}))
                 # Already at the door by the time the shelf check settled.
                 if ("exit" in features and c.exit_entered_at is not None
                         and now - c.exit_entered_at <= self.cfg.late_resolution_s):

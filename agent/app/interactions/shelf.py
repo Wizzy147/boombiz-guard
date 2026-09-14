@@ -20,6 +20,18 @@ It never claims an item was taken. It answers two narrower questions:
    If the camera moved or the lighting changed, the comparison can't be
    trusted and the interaction closes without an alert.
 
+3. WHAT changed (product swap, V1 heuristic): the changed patch is compared
+   with the ring of shelf right around it, before and after.
+     · object before, looks like its surroundings after   → TAKEN
+     · looks like its surroundings before, object after   → ADDED (put back /
+       restocked — no alert)
+     · an object before AND after, but a different one    → REPLACED:
+       "Possible product swap" — someone took a product and left something
+       else, or a fake, in its place. Also counts as unresolved, so walking
+       out afterwards is still a possible unpaid exit.
+   Grayscale histograms only: it sees "different object", never which
+   product. Tuned from pilot footage like the rest of this file.
+
 Each interaction is its own record (§27): pick-up-and-return then pick-up
 again is one RESOLVED + one UNRESOLVED.
 
@@ -80,6 +92,11 @@ class ShelfConfig:
     # change ~20 % of a busy scene; a different view changes most of it.
     max_scene_change: float = 0.5
     scene_pixel_delta: int = 40
+    # Swap verdict: histogram (Bhattacharyya) distance below this = "looks like
+    # the shelf around it"; above swap_difference = "a different object".
+    bg_similarity: float = 0.35
+    swap_difference: float = 0.5
+    min_ring_px: int = 20
 
 
 _ids = itertools.count(1)
@@ -105,6 +122,7 @@ class Interaction:
     # False when the camera moved or the lighting changed too much to trust the
     # shelf comparison; such an interaction is closed without an alert.
     verifiable: bool | None = None
+    verdict: str | None = None  # TAKEN | REPLACED | ADDED (what changed on the shelf)
     before: np.ndarray | None = field(default=None, repr=False)
     control_before: np.ndarray | None = field(default=None, repr=False)
 
@@ -115,7 +133,7 @@ class Interaction:
                 "change_frac": self.change_frac, "strength": self.strength,
                 "camera_shift_px": self.control_change, "brightness_change": self.brightness_change,
                 "scene_change": self.scene_change,
-                "verifiable": self.verifiable}
+                "verifiable": self.verifiable, "verdict": self.verdict}
 
 
 @dataclass
@@ -211,6 +229,46 @@ class ShelfInteractionEngine:
         m = view.mask > 0
         return float(abs(np.median(after[m].astype(np.float32) - before[m].astype(np.float32))))
 
+    @staticmethod
+    def _hist_distance(a: np.ndarray, b: np.ndarray) -> float:
+        """Bhattacharyya distance of two pixel sets' 16-bin histograms: 0 same, 1 unrelated."""
+        if a.size == 0 or b.size == 0:
+            return 0.0
+        ha = np.histogram(a, bins=16, range=(0, 256))[0].astype(np.float64)
+        hb = np.histogram(b, bins=16, range=(0, 256))[0].astype(np.float64)
+        ha /= ha.sum() or 1.0
+        hb /= hb.sum() or 1.0
+        return float(np.sqrt(max(0.0, 1.0 - float(np.sqrt(ha * hb).sum()))))
+
+    def _verdict(self, view: "_ShelfView", before: np.ndarray, after: np.ndarray) -> str | None:
+        """TAKEN / REPLACED / ADDED for the biggest changed patch, or None if it can't tell."""
+        if before.shape != after.shape or view.mask is None:
+            return None
+        m = view.mask > 0
+        changed = ((cv2.absdiff(before, after) > self.cfg.pixel_delta) & m).astype(np.uint8)
+        changed = cv2.morphologyEx(changed, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
+        n, labels, stats, _ = cv2.connectedComponentsWithStats(changed, connectivity=8)
+        if n <= 1:
+            return None
+        k = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
+        comp = labels == k
+        r = max(3, int(round(0.25 * np.sqrt(stats[k, cv2.CC_STAT_AREA]))))
+        grown = cv2.dilate(comp.astype(np.uint8), np.ones((2 * r + 1, 2 * r + 1), np.uint8)) > 0
+        ring = grown & ~(changed > 0) & m  # shelf that didn't change, just around the patch
+        if int(ring.sum()) < self.cfg.min_ring_px:
+            return None
+        surroundings = after[ring]
+        before_is_bg = self._hist_distance(before[comp], surroundings) < self.cfg.bg_similarity
+        after_is_bg = self._hist_distance(after[comp], surroundings) < self.cfg.bg_similarity
+        if before_is_bg and not after_is_bg:
+            return "ADDED"
+        if not before_is_bg and after_is_bg:
+            return "TAKEN"
+        if not before_is_bg and not after_is_bg and \
+                self._hist_distance(before[comp], after[comp]) >= self.cfg.swap_difference:
+            return "REPLACED"
+        return "TAKEN"  # can't tell what: still a real change → unresolved, as before
+
     def update(self, frame_bgr: np.ndarray, tracks: dict[str, BBox], now: float,
                speeds: dict[str, float] | None = None) -> list[ShelfEvent]:
         if not self.views:
@@ -290,6 +348,9 @@ class ShelfInteractionEngine:
                                       and scene <= self.cfg.max_scene_change)
                         it.verifiable = verifiable
                         if frac >= self.cfg.change_frac and verifiable:
+                            it.verdict = self._verdict(view, it.before.astype(np.uint8), crop) \
+                                if it.before is not None else None
+                        if frac >= self.cfg.change_frac and verifiable and it.verdict != "ADDED":
                             it.state = InteractionState.UNRESOLVED
                             it.strength = "STRONG" if frac >= self.cfg.strong_change_frac else "WEAK"
                             events.append(ShelfEvent("UNRESOLVED_SHELF_INTERACTION", it))

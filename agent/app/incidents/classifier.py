@@ -32,6 +32,9 @@ class IncidentRule:
 
 RULES: dict[str, IncidentRule] = {
     "POSSIBLE_UNPAID_EXIT": IncidentRule("POSSIBLE_UNPAID_EXIT", "security", "HIGH", 60, "Possible unpaid exit"),
+    # Same family as unpaid exit: swap then walk out is ONE incident for that person.
+    "POSSIBLE_PRODUCT_REPLACEMENT": IncidentRule("POSSIBLE_PRODUCT_REPLACEMENT", "security", "HIGH", 60,
+                                                 "Possible product swap at shelf"),
     "RESTRICTED_ZONE_ENTRY": IncidentRule("RESTRICTED_AREA_INCIDENT", "restricted", "HIGH", 30, "Restricted area entered"),
     "AFTER_HOURS_PERSON": IncidentRule("AFTER_HOURS_INTRUSION", "after_hours", "CRITICAL", 60,
                                        "Person inside after hours", per_track=False),
@@ -47,7 +50,7 @@ RULES: dict[str, IncidentRule] = {
 # timeline when they belong to the same person/camera.
 TIMELINE_EVENTS = {
     "PERSON_DETECTED", "ZONE_ENTRY", "SHELF_INTERACTION", "UNRESOLVED_SHELF_INTERACTION",
-    "EXIT_APPROACH", "POSSIBLE_CONCEALMENT", "ZONE_EXIT",
+    "EXIT_APPROACH", "POSSIBLE_CONCEALMENT", "ZONE_EXIT", "POSSIBLE_PRODUCT_REPLACEMENT",
 }
 
 SEVERITY_RANK = {"INFO": 0, "LOW": 1, "HIGH": 2, "CRITICAL": 3}

@@ -48,7 +48,7 @@ BASE = f"http://127.0.0.1:{PORT}"
 POLL_S = 3.0
 
 GROUP_LABELS = {
-    "unpaid_exit": "Possible unpaid exit",
+    "unpaid_exit": "Possible theft (unpaid exit, product swap)",
     "restricted": "Restricted area",
     "after_hours": "After-hours intrusion",
     "fire": "Smoke / fire",

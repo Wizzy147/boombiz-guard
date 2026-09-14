@@ -191,6 +191,7 @@ const EVENT_TEXT: Record<string, string> = {
   PERSON_DETECTED: "Person detected", ZONE_ENTRY: "Entered a zone", SHELF_INTERACTION: "Shelf interaction",
   UNRESOLVED_SHELF_INTERACTION: "Interaction unresolved", EXIT_APPROACH: "Exit entered",
   POSSIBLE_UNPAID_EXIT: "Incident triggered", POSSIBLE_CONCEALMENT: "Possible concealment (experimental)",
+  POSSIBLE_PRODUCT_REPLACEMENT: "Something different left on the shelf",
   RESTRICTED_ZONE_ENTRY: "Entered restricted area", AFTER_HOURS_PERSON: "Person after hours",
   POSSIBLE_FIRE: "Possible fire", POSSIBLE_SMOKE: "Possible smoke", ZONE_EXIT: "Left a zone",
 };

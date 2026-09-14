@@ -1,7 +1,7 @@
 """What pops up (user decision 2026-09-13): HIGH + CRITICAL incidents and
 health problems — never LOW, never plain AI events.
 
-    POSSIBLE_UNPAID_EXIT, RESTRICTED_AREA_INCIDENT, AFTER_HOURS_INTRUSION,
+    POSSIBLE_UNPAID_EXIT, POSSIBLE_PRODUCT_REPLACEMENT, RESTRICTED_AREA_INCIDENT, AFTER_HOURS_INTRUSION,
     POSSIBLE_FIRE, POSSIBLE_SMOKE, MANUAL (HIGH/CRITICAL)
     CAMERA_OFFLINE once it's HIGH (offline > 5 min)
     GUARD_PROTECTION_DEGRADED (all cameras down)
@@ -28,6 +28,7 @@ FIRE_TYPES = {"POSSIBLE_FIRE", "POSSIBLE_SMOKE"}
 # Mute groups a person can switch off (tray menu / phone settings).
 GROUPS = {
     "POSSIBLE_UNPAID_EXIT": "unpaid_exit",
+    "POSSIBLE_PRODUCT_REPLACEMENT": "unpaid_exit",
     "POSSIBLE_CONCEALMENT": "unpaid_exit",
     "RESTRICTED_AREA_INCIDENT": "restricted",
     "AFTER_HOURS_INTRUSION": "after_hours",

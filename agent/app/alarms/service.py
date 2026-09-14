@@ -40,8 +40,13 @@ from .adapters import (
 log = logging.getLogger(__name__)
 
 # Phase 3 §29 defaults. enabled=False means "configurable, off until chosen".
+# Theft and product swaps sound the local alarm by default (owner decision
+# 2026-09-14: every suspected theft on a watched camera alarms). Short (3 s)
+# so a false alert is a beep, not a scene; switch off in Alarm settings.
+# Concealment stays off: it's always LOW and never alerts on its own.
 DEFAULT_RULES = [
-    ("POSSIBLE_UNPAID_EXIT", False, 3, 30, False),
+    ("POSSIBLE_UNPAID_EXIT", True, 3, 30, False),
+    ("POSSIBLE_PRODUCT_REPLACEMENT", True, 3, 30, False),
     ("POSSIBLE_CONCEALMENT", False, 3, 30, False),
     ("RESTRICTED_AREA_INCIDENT", False, 5, 30, False),
     ("AFTER_HOURS_INTRUSION", True, 10, 60, False),

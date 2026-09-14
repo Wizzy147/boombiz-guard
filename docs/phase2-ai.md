@@ -101,6 +101,24 @@ NORMAL shows "Guard is operating in reduced-performance mode".
   ~16 ms/inference (YOLOX-nano, 4 CPU threads), 0.02–0.1 s frame-to-event lag,
   simulated 95 % CPU → CRITICAL with protection kept.
 
+## Product swap at the shelf (added 2026-09-14)
+
+When a shelf interaction leaves the shelf changed, Guard now asks *what* changed, comparing the changed patch
+with the ring of shelf just around it (grayscale histograms, `interactions/shelf.py` `_verdict`):
+
+| Before → after | Verdict | Result |
+|---|---|---|
+| object → looks like the shelf around it | TAKEN | unresolved (feeds possible unpaid exit), as before |
+| looks like the shelf → object | ADDED | put back / restocked — resolved, no alert |
+| object → a *different* object | REPLACED | **POSSIBLE_PRODUCT_REPLACEMENT** ("Possible product swap at shelf", HIGH, confidence MEDIUM if the change was strong else LOW) — alerts on its own, and still counts as unresolved so walking out is also a possible unpaid exit, merged into the same incident |
+
+Same safety gates as before: camera moved, lighting changed or scene cut → no verdict, no alert. It detects
+"a different object where a product was", never which product, and on a crowded shelf of small similar items it
+can miss a swap or read a restock as one. Tests: `tests/test_swap.py`.
+
+Alarm defaults changed with it: possible unpaid exit and possible product swap now sound the local alarm by
+default (3 s, 30 s cooldown); concealment still never alarms on its own.
+
 ## Known limits — say these out loud in pilots
 
 - Stock footage is not CCTV and a painted product is not a shelf. Real

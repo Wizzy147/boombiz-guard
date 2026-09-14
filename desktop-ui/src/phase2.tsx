@@ -37,6 +37,7 @@ const EVENT_TEXT: Record<string, string> = {
   UNRESOLVED_SHELF_INTERACTION: "Unresolved shelf interaction",
   EXIT_APPROACH: "Walked to the exit",
   POSSIBLE_UNPAID_EXIT: "Possible unpaid exit",
+  POSSIBLE_PRODUCT_REPLACEMENT: "Possible product swap",
   RESTRICTED_ZONE_ENTRY: "Entered a restricted area",
   AFTER_HOURS_PERSON: "Person after hours",
   POSSIBLE_SMOKE: "Possible smoke",
