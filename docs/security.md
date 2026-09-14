@@ -22,10 +22,13 @@ Each Phase 1 §27 requirement, with where it lives and how it's checked.
 1. **FFmpeg command line holds the credentialed URL** — visible to other local
    users via the process list. Move to a pipe or a per-run temp file readable
    only by the service account.
-2. **Setup token file ACL** — `%PROGRAMDATA%` is readable by local users by
-   default. The installer must restrict `setup-token` and `guard.db` to
-   Administrators + the service account.
-3. **Signed installer and signed updates** (PRD §45) — not built.
+2. ~~**Setup token file ACL**~~ — done in the installer (`installer/post-install.ps1`):
+   `%PROGRAMDATA%\Boombiz Guard` is SYSTEM + Administrators only. Signed-in
+   users can READ `setup-token` alone, because the tray app runs as the cashier;
+   that token still lets any local user drive the localhost API.
+3. **Signed installer and signed updates** (PRD §45) — the installer exists but
+   is unsigned (pilots); `installer/build.ps1` signs when `GUARD_SIGN_CERT` is set.
+   Signed updates not built.
 4. **Dependency scanning in CI** — `pip-audit` + `npm audit` in the pipeline.
 5. **Least-privilege service account** — run the WinSW service as
    `NT SERVICE\BoombizGuard` rather than LocalSystem.

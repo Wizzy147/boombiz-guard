@@ -244,7 +244,29 @@ def single_instance() -> bool:
     return ctypes.windll.kernel32.GetLastError() != 183  # ERROR_ALREADY_EXISTS
 
 
+def open_setup() -> None:
+    """`--open` (Start menu, end of install): open Guard in the browser once
+    the agent answers. Right after install it may still be starting."""
+    for _ in range(30):
+        try:
+            if httpx.get(f"{BASE}/api/ping", timeout=2).status_code == 200:
+                break
+        except httpx.HTTPError:
+            pass
+        time.sleep(1)
+    try:
+        tok = (data_dir() / "setup-token").read_text(encoding="utf-8").strip()
+    except OSError:
+        tok = ""
+    webbrowser.open(f"{BASE}/#t={tok}&view=incidents")
+
+
 if __name__ == "__main__":
-    if sys.platform != "win32" or not single_instance():
+    if sys.platform != "win32":
+        sys.exit(0)
+    first = single_instance()
+    if "--open" in sys.argv:
+        open_setup()
+    if not first:
         sys.exit(0)
     Tray().run()

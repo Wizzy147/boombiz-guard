@@ -1,6 +1,6 @@
 [project]
 name = "boombiz-guard-agent"
-version = "0.1.0"
+version = "0.4.3"
 description = "Boombiz Guard Agent — local CCTV discovery, streaming and (later) AI"
 requires-python = ">=3.12"
 dependencies = [

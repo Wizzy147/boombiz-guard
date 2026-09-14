@@ -31,7 +31,7 @@ agent\.venv\Scripts\python lab\dod.py   :: Phase 2 Definition of Done on real fo
 boombiz-guard/
 ├── agent/        Python 3.13 Windows agent (FastAPI, SQLite, FFmpeg)
 ├── desktop-ui/   React + Vite setup UI, served by the agent on 127.0.0.1
-├── installer/    (Phase 1 packaging — PyInstaller + WinSW, not built yet)
+├── installer/    Windows installer (PyInstaller + Inno Setup) — see below
 ├── lab/          Simulated CCTV lab + end-to-end test
 └── docs/         architecture, supported devices, security
 ```
@@ -60,6 +60,23 @@ created on first run:
 ```
 http://127.0.0.1:7480/#t=<contents of %PROGRAMDATA%\Boombiz Guard\setup-token>
 ```
+
+## Build the installer
+
+```bat
+powershell -ExecutionPolicy Bypass -File installer\build.ps1
+```
+
+Produces `dist\installer\BoombizGuardSetup-<VERSION>.exe` (version from
+`agent\app\main.py`). Needs Inno Setup 6, PyInstaller in `agent\.venv`, the
+model files in `agent\models`, and FFmpeg (`GUARD_FFMPEG_DIR`, default: the one
+on PATH). The installer puts the agent + tray app in Program Files, the models
+in `%ProgramData%\Boombiz Guard\models`, starts the agent at boot as SYSTEM
+(scheduled task "Boombiz Guard Agent", restarts on failure) and the tray app at
+every sign-in. Uninstall keeps `%ProgramData%\Boombiz Guard`.
+
+It is **unsigned** for BDO pilots: Windows shows "Windows protected your PC" →
+More info → Run anyway. Set `GUARD_SIGN_CERT` / `GUARD_SIGN_PASSWORD` to sign.
 
 ## Prove it without hardware — the simulated lab
 

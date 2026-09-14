@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import sys
 from collections import deque
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -48,8 +49,15 @@ from .services.streams import StreamManager
 
 log = logging.getLogger("guard")
 
-UI_DIST = Path(__file__).resolve().parents[2] / "desktop-ui" / "dist"
-VERSION = "0.4.2-phase4c"
+def _ui_dist() -> Path:
+    # Packaged (PyInstaller): the built setup UI ships inside the bundle.
+    if getattr(sys, "frozen", False):
+        return Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent)) / "desktop-ui" / "dist"
+    return Path(__file__).resolve().parents[2] / "desktop-ui" / "dist"
+
+
+UI_DIST = _ui_dist()
+VERSION = "0.4.3"
 
 
 def create_app(settings: Settings | None = None, *, db_path: str | None = None, cipher=None) -> FastAPI:  # noqa: ANN001

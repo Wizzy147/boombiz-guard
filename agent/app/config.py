@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -13,6 +14,19 @@ def _default_data_dir() -> Path:
     if base and os.name == "nt" and not os.environ.get("GUARD_DEV"):
         return Path(base) / "Boombiz Guard"
     return Path(__file__).resolve().parents[1] / "data"
+
+
+def _tool(name: str) -> str:
+    """ffmpeg/ffprobe: GUARD_FFMPEG/GUARD_FFPROBE win; the installed agent uses
+    the copies shipped beside it; otherwise whatever is on PATH."""
+    env = os.environ.get(f"GUARD_{name.upper()}")
+    if env:
+        return env
+    if getattr(sys, "frozen", False):
+        bundled = Path(sys.executable).parent / "ffmpeg" / f"{name}.exe"
+        if bundled.exists():
+            return str(bundled)
+    return name
 
 
 @dataclass(frozen=True)
@@ -27,8 +41,8 @@ class Settings:
     discovery_timeout_s: float = float(os.environ.get("GUARD_DISCOVERY_TIMEOUT", "4"))
     # Phase 1 §13: at least 20–30 s before a stream may be called stable.
     stream_test_seconds: int = int(os.environ.get("GUARD_STREAM_TEST_SECONDS", "20"))
-    ffmpeg: str = os.environ.get("GUARD_FFMPEG", "ffmpeg")
-    ffprobe: str = os.environ.get("GUARD_FFPROBE", "ffprobe")
+    ffmpeg: str = field(default_factory=lambda: _tool("ffmpeg"))
+    ffprobe: str = field(default_factory=lambda: _tool("ffprobe"))
     # Extra RTSP port list checked during a scan (standard + common OEM).
     rtsp_ports: tuple[int, ...] = (554, 8554, 10554)
     http_ports: tuple[int, ...] = (80, 8000, 8080, 443)
