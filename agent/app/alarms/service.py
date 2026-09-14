@@ -40,15 +40,17 @@ from .adapters import (
 log = logging.getLogger(__name__)
 
 # Phase 3 §29 defaults. enabled=False means "configurable, off until chosen".
-# Theft and product swaps sound the local alarm by default (owner decision
-# 2026-09-14: every suspected theft on a watched camera alarms). Short (3 s)
-# so a false alert is a beep, not a scene; switch off in Alarm settings.
-# Concealment stays off: it's always LOW and never alerts on its own.
+# The shop's alarms are a MAIN alert channel (owner decision 2026-09-14): every
+# suspected theft, swap or restricted-area entry fires EVERY enabled output —
+# the CCTV siren/buzzer on a camera or recorder alarm output, the PC beep, and
+# any external relay alarm. Short (3–5 s) so a false alert is a beep, not a
+# scene; switch any off in Alarm settings. Concealment stays off: it's always
+# LOW and never alerts on its own. Rules seed only when missing.
 DEFAULT_RULES = [
     ("POSSIBLE_UNPAID_EXIT", True, 3, 30, False),
     ("POSSIBLE_PRODUCT_REPLACEMENT", True, 3, 30, False),
     ("POSSIBLE_CONCEALMENT", False, 3, 30, False),
-    ("RESTRICTED_AREA_INCIDENT", False, 5, 30, False),
+    ("RESTRICTED_AREA_INCIDENT", True, 5, 30, False),
     ("AFTER_HOURS_INTRUSION", True, 10, 60, False),
     ("POSSIBLE_SMOKE", True, 10, 30, False),
     ("POSSIBLE_FIRE", True, 10, 30, True),

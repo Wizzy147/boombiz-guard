@@ -128,6 +128,17 @@ locally (UNREVIEWED → ACKNOWLEDGED "(remote)", stops a repeating fire siren), 
 A local review always wins; a stale re-send never undoes a remote acknowledgement. Unknown command types are
 acknowledged and ignored — never executed (§58). The incident page lists who was alerted, by what, and the result.
 
+**Main channels vs backup (owner decision 2026-09-14):** the main alerts are the free ones — phone buzz (Guard
+web push) and the shop's alarms (CCTV siren/buzzer on a camera or recorder alarm output, the PC beep, any external
+relay alarm; theft, swap and restricted-area alarms are ON by default and fire every enabled output). WhatsApp and
+email are backup: **WhatsApp capped at 150 messages per business per calendar month** (Lagos; fire never blocked,
+still counts; over the cap the row is SKIPPED with "used up — still went to phones, the shop alarm and email"), and
+**grouped**: the first WhatsApp to a person about a branch goes at once; further non-fire, non-critical alerts to
+them for that branch within 10 minutes are held (GROUPED) and the guard-health cron sends one summary via the ALERT
+template ("3 more alerts (…) at Owerri Branch", camera list, time range, top severity, link to the latest). A summary
+counts as one message. New recipients get WhatsApp on by default only for the Owner. Not built: cameras whose
+speaker is only reachable through a separate vendor "audio alarm" API (needs real hardware to verify).
+
 **Not in 4C:** escalation chains (§93, Phase 4.1), remote confirm/false-alert (4D RBAC), delivery receipts from
 Meta's webhook (status stays SENT, not DELIVERED), attached snapshot images.
 

@@ -104,7 +104,7 @@ def test_theft_and_swap_sound_the_alarm_by_default(tmp_path):
     from app.alarms.service import DEFAULT_RULES
 
     on = {t for t, enabled, *_ in DEFAULT_RULES if enabled}
-    assert {"POSSIBLE_UNPAID_EXIT", "POSSIBLE_PRODUCT_REPLACEMENT", "POSSIBLE_FIRE"} <= on
+    assert {"POSSIBLE_UNPAID_EXIT", "POSSIBLE_PRODUCT_REPLACEMENT", "RESTRICTED_AREA_INCIDENT", "POSSIBLE_FIRE"} <= on
     assert "POSSIBLE_CONCEALMENT" not in on  # always LOW, never alarms on its own
 
 
