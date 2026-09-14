@@ -64,16 +64,40 @@ def collect_health(db: "Database", streams: "StreamManager", ai: "AIService", li
     }
 
 
+ALLOWED_COMMANDS = {"INCIDENT_ACKNOWLEDGE"}  # §58: predefined only — never a shell, never code
+
+
 class Heartbeat:
-    def __init__(self, link: "CloudLink", collect: Callable[[], dict]) -> None:
+    def __init__(self, link: "CloudLink", collect: Callable[[], dict],
+                 on_command: Callable[[dict], bool] | None = None) -> None:
         self.link = link
         self.collect = collect
+        self.on_command = on_command
+        self.applied: list[str] = []  # reported on the next beat, then forgotten
+
+    def _apply(self, commands: list) -> None:
+        for cmd in commands or []:
+            cid = cmd.get("id") if isinstance(cmd, dict) else None
+            if not cid or cid in self.applied:
+                continue
+            if cmd.get("type") not in ALLOWED_COMMANDS:
+                log.warning("ignored unknown cloud command %s", cmd.get("type"))
+                self.applied.append(cid)  # acknowledged so it isn't resent; never executed
+                continue
+            try:
+                if self.on_command is None or self.on_command(cmd):
+                    self.applied.append(cid)
+            except Exception:
+                log.exception("cloud command %s failed; will retry on the next beat", cid)
 
     async def beat(self) -> dict | None:
         device_id = self.link.device_id()
         if not self.link.token() or not device_id:
             return None
         payload = self.collect()
+        sending = list(self.applied)
+        if sending:
+            payload["applied_commands"] = sending
         try:
             async with httpx.AsyncClient(timeout=15) as c:
                 for attempt in (1, 2):
@@ -99,6 +123,8 @@ class Heartbeat:
             log.info("heartbeat refused: HTTP %s", r.status_code)
             return None
         d = r.json()
+        self.applied = [c for c in self.applied if c not in sending]  # the cloud has them now
+        self._apply(d.get("commands") or [])
         self.link.state.update(health_status=d.get("status"), health_reasons=d.get("reasons", []),
                                last_heartbeat_at=datetime.now(timezone.utc).isoformat())
         if "paired" in d:  # the heartbeat doubles as the link check

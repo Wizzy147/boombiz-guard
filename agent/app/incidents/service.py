@@ -383,6 +383,31 @@ class IncidentService:
                       ref, by=session.name, role=session.role, reason=reason)
         return self.get(incident_id)
 
+    def remote_acknowledge(self, incident_id: str, by: str, at: str | None) -> bool:
+        """Someone acknowledged this incident from their phone (Phase 4 §52–55).
+        Only moves UNREVIEWED → ACKNOWLEDGED; a review already done here wins.
+        Returns True when handled (including "nothing to do"), so the cloud
+        stops re-sending the command."""
+        when = None
+        if at:
+            try:
+                when = datetime.fromisoformat(at)
+            except ValueError:
+                when = None
+        with self.db.session() as s:
+            inc = s.get(Incident, incident_id)
+            if inc is None or inc.deleted_at is not None:
+                return True
+            if inc.status != lifecycle.UNREVIEWED:
+                return True
+            inc.status = lifecycle.ACKNOWLEDGED
+            inc.acknowledged_by = f"{by[:60]} (remote)"
+            inc.acknowledged_at = when or _now()
+            ref = inc.ref
+        self.alarms.stop_repeat(incident_id)  # a response from anywhere ends a repeating fire siren
+        self.db.audit("incident_acknowledged", ref, by=by, remote=True)
+        return True
+
     def keep(self, incident_id: str, session: Session, keep: bool) -> dict:
         require(session.role, "keep")
         with self.db.session() as s:

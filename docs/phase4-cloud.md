@@ -7,7 +7,7 @@ call is ever on the path of detection, incident capture or the local alarm.
 |---|---|---|
 | 4A | Device cloud & authentication: activation codes, device secret → access tokens, heartbeats, remote health, offline detection, revoke | **Built** (this doc) |
 | 4B | Incident sync & media: priority sync queue, idempotent incident API, snapshot + ≤15 s clip upload to a private bucket, retention | **Built** |
-| 4C | Notifications: recipients, rules, WhatsApp (Meta Cloud API) + email, dedupe, retries, signed incident links, acknowledge | — |
+| 4C | Notifications: recipients, rules, WhatsApp (Meta Cloud API) + email, dedupe, retries, signed incident links, acknowledge | **Built** (see "4C" below) |
 | 4D | Multi-store, RBAC, audit UI, health alerts, subscription state (admin-set; Paystack later), hardening | — |
 
 Decisions: keep phone pairing AND add installer codes · incident media goes to a **new private bucket**
@@ -95,6 +95,44 @@ POST /api/guard/v1/incidents/{id}/uploads/complete  cloud HEADs the object: size
 - **Cloud console**: Incidents tab (today's counts, filters, per-branch) and an incident page with snapshot,
   clip, timeline and review details.
 - **Not yet**: remote acknowledge/confirm and alert links (4C).
+
+## 4C — WhatsApp + email alerts, secure links, remote acknowledge
+
+Decisions (2026-09-14): Claude drafts the WhatsApp templates, the owner submits them in WhatsApp Manager
+(`docs/guard-whatsapp-templates.md`); **3 WhatsApp recipients per business** (email unlimited); guards without an
+account get a limited 30-minute link page.
+
+**Recipients** (Guard console → Recipients; owner/manager, a branch-pinned manager only their branch): name, role,
+WhatsApp number (Nigerian local numbers normalised), email, branch or all, alert types, minimum severity, quiet
+hours. Role presets: security = theft/intrusion types, no camera-health. "Send a test" (max 10/hour/business).
+
+**Rules** (`lib/guard/alertRules.ts`, unit-tested): fire → everyone, any hour; critical ignores quiet hours; LOW is
+email-only (WhatsApp costs money); late arrivals after an outage — critical always, HIGH ≤ 60 min, LOW ≤ 30 min,
+else dashboard only; fair use 30 WhatsApp/business/hour except fire.
+
+**Sending** (`lib/guard/notify.ts`): an incident that syncs (or rises in severity, e.g. camera offline LOW → HIGH)
+alerts at once; Guard offline (cron) and restored (heartbeat) go to "Camera & Guard problems" recipients.
+One `GuardNotification` per subject + recipient + channel (unique key → no duplicates); content rendered once, so
+a retry is identical. Retries 30 s / 2 min / 5 min (4 attempts) — the 10-min guard-health cron runs them, and only
+queries Postgres when the DynamoDB `NOTIFY_PENDING` flag says something is waiting. A fire/critical WhatsApp that
+fails for good is emailed instead (§89). Messages carry a "View incident" link rather than an attached image: the
+snapshot usually lands after the alert should already be out.
+
+**Secure link** `guard.getboombiz.com/i/<token>`: 192-bit token, hash only, 30 min, revocable, one incident:
+snapshot, clip, what/where/when, Acknowledge. No sign-in, nothing else reachable; rate-limited; opening is audited.
+Expired → "This secure incident link has expired. Log in to Boombiz Guard to view the incident."
+
+**Remote acknowledge** (console or link): cloud row moves (optimistic concurrency on `version`), a predefined
+`INCIDENT_ACKNOWLEDGE` command is queued in DynamoDB, delivered on the PC's next heartbeat (≤ 2 min), applied
+locally (UNREVIEWED → ACKNOWLEDGED "(remote)", stops a repeating fire siren), confirmed on the following beat.
+A local review always wins; a stale re-send never undoes a remote acknowledgement. Unknown command types are
+acknowledged and ignored — never executed (§58). The incident page lists who was alerted, by what, and the result.
+
+**Not in 4C:** escalation chains (§93, Phase 4.1), remote confirm/false-alert (4D RBAC), delivery receipts from
+Meta's webhook (status stays SENT, not DELIVERED), attached snapshot images.
+
+**To go live (4C):** `prisma db push` (GuardRecipient, GuardNotification, GuardIncidentLink); deploy; submit the 4
+templates and set `BOOMBIZ_GUARD_WA_TEMPLATE_*` in Amplify when approved (email works before that); agent 0.4.2.
 
 ## §98 Internet use (bandwidth modes) and §99 backlog cap
 

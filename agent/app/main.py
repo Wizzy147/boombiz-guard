@@ -49,7 +49,7 @@ from .services.streams import StreamManager
 log = logging.getLogger("guard")
 
 UI_DIST = Path(__file__).resolve().parents[2] / "desktop-ui" / "dist"
-VERSION = "0.4.1-phase4b"
+VERSION = "0.4.2-phase4c"
 
 
 def create_app(settings: Settings | None = None, *, db_path: str | None = None, cipher=None) -> FastAPI:  # noqa: ANN001
@@ -97,7 +97,12 @@ def create_app(settings: Settings | None = None, *, db_path: str | None = None, 
     # ── pop-up notifications: phones via the Boombiz cloud (outbound only) ──
     cloud = CloudLink(db, cipher)
     sync = SyncQueue(db, cloud, media_worker)
-    heartbeat = Heartbeat(cloud, lambda: collect_health(db, streams, ai, cloud, VERSION, sync))
+    def on_cloud_command(cmd: dict) -> bool:
+        if cmd.get("type") == "INCIDENT_ACKNOWLEDGE":
+            return incidents.remote_acknowledge(cmd["local_incident_id"], cmd.get("by") or "Boombiz", cmd.get("at"))
+        return True
+
+    heartbeat = Heartbeat(cloud, lambda: collect_health(db, streams, ai, cloud, VERSION, sync), on_cloud_command)
 
     def feed_to_outbox() -> None:
         """Copy new pop-up-worthy items into the cloud outbox. Cursor persisted,

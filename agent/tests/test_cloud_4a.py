@@ -78,9 +78,12 @@ async def heartbeat(device_id: str, req: Request):
         return JSONResponse({"error": "Unknown device."}, status_code=401)
     if not _access_ok(req):
         return JSONResponse({"error": "Unknown device."}, status_code=401)
-    C["heartbeats"].append({"device_id": device_id, "auth": req.headers["authorization"], **(await req.json())})
+    body = await req.json()
+    C["heartbeats"].append({"device_id": device_id, "auth": req.headers["authorization"], **body})
+    pending = C.setdefault("commands", [])
+    pending[:] = [c for c in pending if c["id"] not in body.get("applied_commands", [])]
     return {"status": "ONLINE", "reasons": [], "paired": True, "business_name": "Digital Pharmacy",
-            "location_name": "Owerri Branch", "next_heartbeat_seconds": 120, "commands": []}
+            "location_name": "Owerri Branch", "next_heartbeat_seconds": 120, "commands": list(pending)}
 
 
 @fake.get("/api/guard/v1/device")
@@ -243,6 +246,56 @@ def test_unlinked_pc_still_checks_every_time(db, cloud_url):
     asyncio.run(link.refresh_if_due())
     asyncio.run(link.refresh_if_due())
     assert C["device_checks"] == 2
+
+
+class _Alarms:
+    stopped: list = []
+
+    def stop_repeat(self, iid):
+        self.stopped.append(iid)
+
+
+def test_remote_acknowledge_reaches_the_shop_pc_and_is_confirmed(db, cloud_url):
+    from app.incidents.service import IncidentService
+
+    with db.session() as s:
+        s.add(Incident(id="inc1", ref="BG-OWR-1", camera_id="cam1", incident_type="POSSIBLE_FIRE", severity="CRITICAL",
+                       occurred_at=datetime.now(timezone.utc)))
+    alarms = _Alarms()
+    incidents = IncidentService(db, None, None, alarms, None)
+    link = activated(db, cloud_url)
+    on_cmd = lambda c: incidents.remote_acknowledge(c["local_incident_id"], c["by"], c["at"])  # noqa: E731
+    hb = Heartbeat(link, lambda: {"agent_version": "0.4.2"}, on_cmd)
+    C["commands"] = [{"id": "ack:ci1", "type": "INCIDENT_ACKNOWLEDGE", "local_incident_id": "inc1", "by": "Emeka",
+                      "at": datetime.now(timezone.utc).isoformat()}]
+    asyncio.run(hb.beat())
+    with db.session() as s:
+        inc = s.get(Incident, "inc1")
+        assert inc.status == "ACKNOWLEDGED" and inc.acknowledged_by == "Emeka (remote)"
+    assert "inc1" in alarms.stopped  # a repeating fire siren stops
+    asyncio.run(hb.beat())  # reports it applied → cloud drops it
+    assert C["heartbeats"][-1]["applied_commands"] == ["ack:ci1"] and C["commands"] == []
+
+
+def test_unknown_cloud_command_is_never_executed(db, cloud_url):
+    link = activated(db, cloud_url)
+    ran = []
+    hb = Heartbeat(link, lambda: {}, lambda c: ran.append(c) or True)
+    C["commands"] = [{"id": "x1", "type": "RUN_SHELL_COMMAND", "cmd": "format c:"}]
+    asyncio.run(hb.beat())
+    asyncio.run(hb.beat())
+    assert ran == [] and C["commands"] == []  # ignored, acknowledged, gone
+
+
+def test_remote_ack_never_overrides_a_local_review(db):
+    from app.incidents.service import IncidentService
+
+    with db.session() as s:
+        s.add(Incident(id="inc2", ref="BG-OWR-2", camera_id="cam1", incident_type="POSSIBLE_UNPAID_EXIT",
+                       severity="HIGH", status="FALSE_ALERT", occurred_at=datetime.now(timezone.utc)))
+    assert IncidentService(db, None, None, _Alarms(), None).remote_acknowledge("inc2", "Emeka", None) is True
+    with db.session() as s:
+        assert s.get(Incident, "inc2").status == "FALSE_ALERT"
 
 
 def test_old_cloud_without_device_auth_falls_back_to_secret(db, cloud_url):
