@@ -2,7 +2,8 @@
 
 What pops up (user decision 2026-09-13): **HIGH and CRITICAL incidents plus health problems** —
 possible unpaid exit, restricted area, after-hours intrusion, smoke/fire, staff reports marked
-High/Critical, a camera offline for more than 5 minutes, all Guard cameras down, and an alarm output
+High/Critical, a camera with no video for 30 s or one that's covered or turned away (both HIGH at once —
+possibly damaged), all Guard cameras down, and an alarm output
 that stopped responding. LOW incidents stay in the dashboard only. One feed
 (`GET /api/v1/notifications?after=<cursor>`, `app/notify/feed.py`) serves both destinations, keyed
 by (incident, severity) so a camera that goes LOW → HIGH pops once, when it becomes HIGH.

@@ -24,9 +24,10 @@ from sqlalchemy import select
 
 from ..adapters.base import Credentials
 from ..database.db import Database
-from ..database.models import AlarmOutput, AlarmRule, Device, Incident, iso_utc
+from ..database.models import AlarmOutput, AlarmRule, Device, Incident, Schedule, iso_utc
 from ..incidents.classifier import at_least
 from ..security.vault import CredentialVault
+from ..zones.schedule import DayHours, is_open
 from .adapters import (
     AlarmAdapter,
     AlarmError,
@@ -58,10 +59,20 @@ DEFAULT_RULES = [
     ("AFTER_HOURS_INTRUSION", True, 10, 60, False),
     ("POSSIBLE_SMOKE", True, 10, 30, False),
     ("POSSIBLE_FIRE", True, 10, 30, True),
-    ("CAMERA_OFFLINE", False, 3, 300, False),
-    ("GUARD_PROTECTION_DEGRADED", False, 3, 300, False),
+    ("CAMERA_OFFLINE", True, 10, 0, False),
+    ("CAMERA_TAMPERED", True, 10, 0, False),
+    ("GUARD_PROTECTION_DEGRADED", True, 10, 0, False),
 ]
 MAX_FIRE_REPEATS = 20
+
+# A damaged, disconnected, covered or turned camera sounds every OTHER working
+# siren at once — but only outside business hours (owner decision 2026-09-14):
+# during the day staff moving or cleaning a camera would set it off, so then
+# the owner, manager and security are told and nothing sounds. The damaged
+# camera's own alarm output may be dead; it's marked ERROR and the rest fire.
+# No business hours set → Guard treats the shop as always open (zones/schedule),
+# so the setup checklist asks the installer to set them.
+AFTER_CLOSING_ONLY = {"CAMERA_OFFLINE", "CAMERA_TAMPERED", "GUARD_PROTECTION_DEGRADED"}
 
 
 class AlarmService:
@@ -84,6 +95,12 @@ class AlarmService:
             for r in s.scalars(select(AlarmRule).where(AlarmRule.incident_type == "POSSIBLE_UNPAID_EXIT",
                                                        AlarmRule.cooldown_seconds == 30)):
                 r.cooldown_seconds = 0
+            # Camera-damage rules seeded before 2026-09-14 were off with a 5-min
+            # cooldown. Turn those on; a rule the store changed is left alone.
+            for r in s.scalars(select(AlarmRule).where(AlarmRule.incident_type.in_(AFTER_CLOSING_ONLY),
+                                                       AlarmRule.enabled.is_(False),
+                                                       AlarmRule.cooldown_seconds == 300)):
+                r.enabled, r.cooldown_seconds, r.duration_seconds = True, 0, 10
             if not s.scalar(select(AlarmOutput).where(AlarmOutput.kind == "PC_SOUND")):
                 s.add(AlarmOutput(name="This computer's speaker", kind="PC_SOUND"))
 
@@ -160,6 +177,8 @@ class AlarmService:
                                                                    AlarmRule.enabled.is_(True)))
                      if at_least(sev, r.min_severity)]
             rules = [(r.id, r.alarm_output_id, r.duration_seconds, r.cooldown_seconds, r.repeat_until_ack) for r in rules]
+            if itype in AFTER_CLOSING_ONLY and self._store_open(s):
+                rules = []  # camera damage while open: people are told, nothing sounds
         state = "NONE"
         for rid, out_id, dur, cool, repeat in rules:
             now = time.monotonic()
@@ -177,6 +196,11 @@ class AlarmService:
             if inc:
                 inc.alarm_state = state
         return state
+
+    @staticmethod
+    def _store_open(s, now: datetime | None = None) -> bool:
+        days = [DayHours(r.day_of_week, r.opens_at, r.closes_at, r.closed) for r in s.scalars(select(Schedule))]
+        return is_open(days, now or datetime.now())
 
     async def _repeat_until_ack(self, incident_id: str, out_id: str | None, dur: int, cool: int, ref: str) -> None:
         try:

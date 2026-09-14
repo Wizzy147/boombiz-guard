@@ -42,8 +42,16 @@ RULES: dict[str, IncidentRule] = {
     "POSSIBLE_SMOKE": IncidentRule("POSSIBLE_SMOKE", "fire", "HIGH", 30, "Possible smoke", per_track=False),
     "POSSIBLE_CONCEALMENT": IncidentRule("POSSIBLE_CONCEALMENT", "security", "HIGH", 60,
                                          "Possible concealment (experimental)", creates_incident=False),
-    # Stream health events from the Phase 1 workers.
-    "CAMERA_OFFLINE": IncidentRule("CAMERA_OFFLINE", "health", "LOW", 1e9, "Camera offline", per_track=False),
+    # Camera damage (owner decision 2026-09-14): the owner, manager and security
+    # hear at once — HIGH from the start, so it pops up, buzzes phones and goes
+    # by WhatsApp. CAMERA_OFFLINE comes from the stream health loop (no video
+    # for 30 s: smashed, cable cut, unplugged); CAMERA_TAMPERED from the AI
+    # worker (video still arriving, but the lens is covered or turned away).
+    "CAMERA_OFFLINE": IncidentRule("CAMERA_OFFLINE", "health", "HIGH", 1e9, "Camera stopped sending video",
+                                   per_track=False),
+    # 10-min window: a second tamper on the same camera later is a new incident.
+    "CAMERA_TAMPERED": IncidentRule("CAMERA_TAMPERED", "health", "HIGH", 600, "Camera covered or turned away",
+                                    per_track=False),
 }
 
 # Events that don't open an incident but are copied into an open incident's

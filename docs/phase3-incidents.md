@@ -33,8 +33,9 @@ Offline by construction: nothing in this phase uses the internet.
 
 Events that open an incident (`incidents/classifier.py`): POSSIBLE_UNPAID_EXIT (HIGH, 60 s window, per
 person), RESTRICTED_AREA_INCIDENT (HIGH, 30 s), AFTER_HOURS_INTRUSION (CRITICAL, 60 s, per camera),
-POSSIBLE_FIRE (CRITICAL) / POSSIBLE_SMOKE (HIGH) (30 s, per camera), CAMERA_OFFLINE (LOW → HIGH after
-5 min, one until it reconnects), GUARD_PROTECTION_DEGRADED (CRITICAL, all cameras down),
+POSSIBLE_FIRE (CRITICAL) / POSSIBLE_SMOKE (HIGH) (30 s, per camera), CAMERA_OFFLINE (HIGH once there's been
+no video for 30 s — possibly damaged; one until it reconnects), CAMERA_TAMPERED (HIGH, lens covered or camera
+turned away for 30 s, `ai/tamper.py`), GUARD_PROTECTION_DEGRADED (CRITICAL, all cameras down),
 MANUAL_SECURITY_INCIDENT (staff report, can save the last 15 s).
 
 POSSIBLE_CONCEALMENT does **not** open an incident on its own (earlier decision: it's always LOW); it joins

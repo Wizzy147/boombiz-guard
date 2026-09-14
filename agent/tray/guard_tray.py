@@ -204,7 +204,7 @@ class Tray:
 
     # ── loop ─────────────────────────────────────────────────────────
     def poll_loop(self) -> None:
-        # First run: start from now — don't flood the till with history.
+        # First run: start from now — don't flood the cashier's computer with history.
         cursor = self.prefs.get("cursor") or datetime.now(timezone.utc).isoformat()
         last_status = 0.0
         while not self.stop.is_set():

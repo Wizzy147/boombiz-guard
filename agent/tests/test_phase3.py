@@ -20,7 +20,7 @@ from app.alarms.service import AlarmService
 from app.buffer.rolling_buffer import MAX_CLIP_S, RollingBuffer
 from app.buffer.segment_manager import BufferManager
 from app.database.db import Database
-from app.database.models import AlarmOutput, AlarmRule, Camera, Device, Incident, MediaJob
+from app.database.models import AlarmOutput, AlarmRule, Camera, Device, Incident, MediaJob, Schedule
 from app.incidents.lifecycle import TransitionError
 from app.incidents.service import IncidentError, IncidentService
 from app.media.encryption import MediaCrypto
@@ -225,7 +225,7 @@ def test_review_flow_and_permissions(stack):
         stack.svc.act(fire_id, "confirm", guard)          # security: not on CRITICAL
     with pytest.raises(IncidentError):
         stack.svc.act(exit_id, "false_alert", manager)     # needs a reason
-    d = stack.svc.act(exit_id, "false_alert", manager, note="Paid at till 2", reason="CUSTOMER_PAID")
+    d = stack.svc.act(exit_id, "false_alert", manager, note="Paid at cashier 2", reason="CUSTOMER_PAID")
     assert d["status"] == "FALSE_ALERT" and d["reviewed_by"] == "Musa" and d["false_alert_reason"] == "CUSTOMER_PAID"
     with pytest.raises(TransitionError):
         stack.svc.act(exit_id, "confirm", manager)         # must reopen first
@@ -341,20 +341,64 @@ async def test_alarm_cooldown_failure_and_fire_repeat(stack):
 # ── camera health ────────────────────────────────────────────────────
 def test_camera_offline_incidents(stack):
     svc = stack.svc
+    off = lambda: [i for i in incidents(stack) if i.incident_type == "CAMERA_OFFLINE"]  # noqa: E731
     svc.check_camera_health(0, {"cam1": "OFFLINE", "cam2": "ONLINE"})
-    svc.check_camera_health(70, {"cam1": "OFFLINE", "cam2": "ONLINE"})
-    off = [i for i in incidents(stack) if i.incident_type == "CAMERA_OFFLINE"]
-    assert len(off) == 1 and off[0].severity == "LOW"
+    svc.check_camera_health(10, {"cam1": "OFFLINE", "cam2": "ONLINE"})
+    assert not off()  # a blip isn't a damaged camera
+    svc.check_camera_health(16, {"cam1": "OFFLINE", "cam2": "ONLINE"})
+    assert len(off()) == 1 and off()[0].severity == "HIGH"  # possibly damaged: urgent at once
+    assert "damaged" in off()[0].description
     svc.check_camera_health(80, {"cam1": "OFFLINE", "cam2": "ONLINE"})
-    assert len([i for i in incidents(stack) if i.incident_type == "CAMERA_OFFLINE"]) == 1  # one until recovery
-    svc.check_camera_health(320, {"cam1": "OFFLINE", "cam2": "ONLINE"})
-    assert next(i for i in incidents(stack) if i.incident_type == "CAMERA_OFFLINE").severity == "HIGH"
-    svc.check_camera_health(330, {"cam1": "ONLINE", "cam2": "ONLINE"})
-    assert next(i for i in incidents(stack) if i.incident_type == "CAMERA_OFFLINE").ended_at is not None
+    assert len(off()) == 1  # one until recovery
+    svc.check_camera_health(90, {"cam1": "ONLINE", "cam2": "ONLINE"})
+    assert off()[0].ended_at is not None
     svc.check_camera_health(400, {"cam1": "OFFLINE", "cam2": "OFFLINE"})
-    svc.check_camera_health(470, {"cam1": "OFFLINE", "cam2": "OFFLINE"})
+    svc.check_camera_health(420, {"cam1": "OFFLINE", "cam2": "OFFLINE"})
     deg = [i for i in incidents(stack) if i.incident_type == "GUARD_PROTECTION_DEGRADED"]
     assert len(deg) == 1 and deg[0].severity == "CRITICAL"
+
+
+def _damaged_camera(stack) -> str:
+    stack.svc.check_camera_health(0, {"cam1": "OFFLINE", "cam2": "ONLINE"})
+    stack.svc.check_camera_health(20, {"cam1": "OFFLINE", "cam2": "ONLINE"})
+    return next(i.id for i in incidents(stack) if i.incident_type == "CAMERA_OFFLINE")
+
+
+def _record_sirens(stack) -> list:
+    fired = []
+
+    async def fake(output_ids, seconds, ref):
+        fired.append(seconds)
+        return True
+
+    stack.alarms._fire_outputs = fake
+    return fired
+
+
+def test_damaged_camera_siren_is_silent_while_the_shop_is_open(stack):
+    iid, fired = _damaged_camera(stack), _record_sirens(stack)
+    assert asyncio.run(stack.alarms.on_incident(iid)) == "NONE"  # no hours set = always open
+    assert fired == []
+
+
+def test_damaged_camera_sounds_the_siren_after_closing(stack):
+    with stack.db.session() as s:
+        for d in range(7):
+            s.add(Schedule(day_of_week=d, opens_at=None, closes_at=None, closed=True))
+    iid, fired = _damaged_camera(stack), _record_sirens(stack)
+    assert asyncio.run(stack.alarms.on_incident(iid)) == "TRIGGERED"
+    assert fired == [10]
+
+
+def test_old_installs_get_the_damaged_camera_siren(tmp_path):
+    db = Database(tmp_path / "old.db")
+    with db.session() as s:
+        s.add(AlarmRule(incident_type="CAMERA_OFFLINE", enabled=False, duration_seconds=3, cooldown_seconds=300))
+    AlarmService(db, CredentialVault(db, CIPHER))
+    with db.session() as s:
+        r = s.query(AlarmRule).filter_by(incident_type="CAMERA_OFFLINE").one()
+        assert r.enabled and r.cooldown_seconds == 0
+        assert s.query(AlarmRule).filter_by(incident_type="CAMERA_TAMPERED").one().enabled
 
 
 def test_location_code(stack):

@@ -9,6 +9,11 @@
 #      for pop-ups.
 #   3. Registers the agent to start at boot as SYSTEM (before anyone signs
 #      in) and restart every minute if it ever stops, then starts it.
+#   4. Keeps the computer awake on mains power: no sleep, no hibernate, so
+#      Guard never stops watching because Windows dozed off. The screen may
+#      still turn off. "Turn back on after a power cut" is a BIOS setting
+#      Windows can't change — the setup wizard's last screen asks the
+#      installer to set it.
 param([Parameter(Mandatory = $true)][string]$App)
 $ErrorActionPreference = "Stop"
 
@@ -38,3 +43,14 @@ $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoi
 Register-ScheduledTask -TaskName $task -Action $action -Trigger $trigger -Principal $principal `
     -Settings $settings -Description "Boombiz Guard: watches your CCTV and sounds the alarm." -Force | Out-Null
 Start-ScheduledTask -TaskName $task
+
+# 4. Never sleep or hibernate on mains power (0 = never). Battery settings are
+# left alone: a laptop on battery is already in trouble and should save itself.
+# A failure here must not fail the install — Guard still works, it just may doze.
+try {
+    & powercfg /change standby-timeout-ac 0 | Out-Null
+    & powercfg /change hibernate-timeout-ac 0 | Out-Null
+    & powercfg /hibernate off | Out-Null
+} catch {
+    Write-Warning "Could not change the power settings: $_"
+}

@@ -3,7 +3,7 @@ health problems — never LOW, never plain AI events.
 
     POSSIBLE_UNPAID_EXIT, POSSIBLE_PRODUCT_REPLACEMENT, RESTRICTED_AREA_INCIDENT, AFTER_HOURS_INTRUSION,
     POSSIBLE_FIRE, POSSIBLE_SMOKE, MANUAL (HIGH/CRITICAL)
-    CAMERA_OFFLINE once it's HIGH (offline > 5 min)
+    CAMERA_OFFLINE (no video for 30 s — possibly damaged), CAMERA_TAMPERED (covered / turned away)
     GUARD_PROTECTION_DEGRADED (all cameras down)
     ALARM_OUTPUT_FAILURE (a siren/relay didn't answer)
 
@@ -35,6 +35,7 @@ GROUPS = {
     "POSSIBLE_FIRE": "fire",
     "POSSIBLE_SMOKE": "fire",
     "CAMERA_OFFLINE": "health",
+    "CAMERA_TAMPERED": "health",
     "GUARD_PROTECTION_DEGRADED": "health",
     "ALARM_OUTPUT_FAILURE": "health",
     "MANUAL_SECURITY_INCIDENT": "manual",

@@ -35,6 +35,7 @@ from ..performance.monitor import ResourceMonitor
 from ..zones.engine import OCCUPIABLE, ZoneDef, ZoneEngine, ZoneType
 from ..zones.schedule import DayHours, is_open
 from .detector import PersonDetector
+from .tamper import TamperDetector
 from .tracker import ByteTracker, TrackState
 
 log = logging.getLogger(__name__)
@@ -76,6 +77,7 @@ class CameraAIWorker:
         self.pose: PoseEstimator | None = None  # set by the service when a pose model is loaded
         self.fire_model = HeuristicFireModel()
         self.fire_validator = FireValidator()
+        self.tamper = TamperDetector()
         self.failed_modules: set[str] = set()
         self.set_zones(zones)
         self.queue: deque[tuple[bytes, float]] = deque(maxlen=2)
@@ -206,6 +208,16 @@ class CameraAIWorker:
             except Exception:
                 self._disable("fire")
 
+        # Covered or turned camera: always on (not a load-policy feature — it
+        # samples once a second on a 160×90 copy), never paused under load.
+        if "tamper" not in self.failed_modules:
+            try:
+                kind = self.tamper.observe(frame, now)
+                if kind:
+                    drafts.append(self._tamper_event(kind))
+            except Exception:
+                self._disable("tamper")
+
         # Phase 3: every event carries the capture time of the frame that
         # produced it (same monotonic clock as the rolling buffer), so an
         # incident's "5 s before" is anchored to what the camera saw, not to
@@ -266,6 +278,17 @@ class CameraAIWorker:
                 dedup_ttl=120.0,
             ))
         return out
+
+    def _tamper_event(self, kind: str):
+        from ..events.service import EventDraft
+
+        what = "covered or blacked out" if kind == "COVERED" else "turned away from its usual view"
+        return EventDraft(
+            self.camera_id, "CAMERA_TAMPERED", None, None, "HIGH", "MEDIUM",
+            metadata={"reason": kind, **self.tamper.last,
+                      "notice": f"The camera's picture looks {what}. Check the camera now."},
+            dedup_ttl=600.0,
+        )
 
     def _disable(self, module: str) -> None:
         self.failed_modules.add(module)

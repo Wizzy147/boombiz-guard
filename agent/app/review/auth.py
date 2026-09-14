@@ -2,7 +2,7 @@
 
 PINs are 4–6 digits, stored as PBKDF2-SHA256 (200k iterations, per-user
 salt) — never in plain text, never logged. Five wrong PINs lock that person
-for 5 minutes (a 4-digit PIN must not be guessable at a till). Sessions are
+for 5 minutes (a 4-digit PIN must not be guessable at the cashier). Sessions are
 random 256-bit tokens held in memory for 12 hours: a restarted agent simply
 asks people to sign in again.
 """

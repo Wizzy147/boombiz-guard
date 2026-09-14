@@ -98,7 +98,7 @@ def unresolved(strength, t=10.0):
 
 
 EXIT = ZoneDef("exit", "Exit", ZoneType.EXIT, SQUARE)
-CASHIER = ZoneDef("till", "Till", ZoneType.CASHIER, SQUARE)
+CASHIER = ZoneDef("till", "Cashier", ZoneType.CASHIER, SQUARE)
 
 
 def run(c, now, **kw):

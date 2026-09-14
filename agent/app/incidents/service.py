@@ -17,9 +17,11 @@ The AI never decides theft: incidents start UNREVIEWED and only a signed-in
 person moves them on (§37).
 
 Camera health (§55–56 of the PRD's Phase 1/2 and §7 here) is watched on a
-loop: a Guard camera offline > 60 s opens ONE CAMERA_OFFLINE incident (LOW,
-raised to HIGH after 5 min) that ends when it reconnects; all Guard cameras
-offline opens ONE GUARD_PROTECTION_DEGRADED (CRITICAL).
+loop: a Guard camera with no video for 30 s (the stream worker calls it
+offline after 15 s, this loop confirms for 15 s more) opens ONE HIGH
+CAMERA_OFFLINE incident — it may have been smashed, cut or unplugged — that
+ends when it reconnects; all Guard cameras offline opens ONE
+GUARD_PROTECTION_DEGRADED (CRITICAL).
 """
 
 from __future__ import annotations
@@ -51,8 +53,11 @@ from .classifier import MANUAL_TYPES, RULES, SEVERITY_RANK, TIMELINE_EVENTS, Inc
 log = logging.getLogger(__name__)
 
 CONF_RANK = {"LOW": 0, "MEDIUM": 1, "HIGH": 2}
-OFFLINE_OPEN_S = 60.0
-OFFLINE_HIGH_S = 300.0
+# The stream worker marks a camera OFFLINE after 15 s without video; 15 s more
+# here makes 30 s from the last picture (owner decision 2026-09-14) — long
+# enough that a Wi-Fi or recorder blip doesn't raise a damaged-camera alarm.
+OFFLINE_OPEN_S = 15.0
+HEALTH_CHECK_S = 5.0
 
 
 def _now() -> datetime:
@@ -276,7 +281,7 @@ class IncidentService:
     # ── camera health → incidents ───────────────────────────────────
     async def _health_loop(self) -> None:
         while True:
-            await asyncio.sleep(15)
+            await asyncio.sleep(HEALTH_CHECK_S)
             try:
                 self.check_camera_health()
             except Exception:
@@ -298,14 +303,13 @@ class IncidentService:
                 if gone >= OFFLINE_OPEN_S and cid not in self._offline_incident:
                     iid = self._create(RULES["CAMERA_OFFLINE"], {"event_type": "CAMERA_OFFLINE", "camera_id": cid,
                                         "occurred_at": _now().isoformat()}, f"{cid}:*:health", manual={"capture": False})
-                    self._offline_incident[cid] = iid
-                    self._after_create(iid, "LOW")
-                elif gone >= OFFLINE_HIGH_S and cid in self._offline_incident:
                     with self.db.session() as s:
-                        inc = s.get(Incident, self._offline_incident[cid])
-                        if inc and inc.severity == "LOW":
-                            inc.severity = "HIGH"
-                            inc.description = "Camera has been offline for more than 5 minutes."
+                        inc = s.get(Incident, iid)
+                        if inc:
+                            inc.description = ("The camera stopped sending video. It may be damaged, disconnected "
+                                               "or without power. Check it now.")
+                    self._offline_incident[cid] = iid
+                    self._after_create(iid, "HIGH")
             else:
                 self._offline_since.pop(cid, None)
                 iid = self._offline_incident.pop(cid, None)
