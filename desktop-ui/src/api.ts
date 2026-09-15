@@ -287,6 +287,71 @@ export interface DayHours {
   closed: boolean;
 }
 
+// ── Auto Setup (plug-and-play) ────────────────────────────────────────
+export interface LicenceInfo {
+  status: "ACTIVE" | "LEGACY" | "DEMO" | "REVOKED" | "GRANDFATHERED";
+  tier: string | null;
+  name: string | null;
+  ai_cameras: number;
+  limit: number;
+  protects: boolean;
+}
+export type CheckState = "idle" | "running" | "ok" | "failed";
+export interface SetupChecks {
+  computer: { state: CheckState; capacity?: number; message?: string; verdict?: string; cpu_count?: number; ram_total_gb?: number };
+  network: { state: CheckState; lan?: boolean; internet?: boolean; message?: string };
+  cctv: { state: CheckState; devices?: number; progress?: number | null; message?: string | null };
+  done: boolean;
+}
+export interface FoundDevice {
+  id: string;
+  brand: string | null;
+  kind: string;
+  title: string;
+  channels: number;
+  needs_login: boolean;
+  connected: boolean;
+  incompatible: boolean;
+  problem: string | null;
+}
+export interface RecCamera {
+  id: string;
+  name: string;
+  score: number;
+  role: string;
+  usable: boolean;
+  reason: string;
+  recommended: boolean;
+}
+export interface Recommendation {
+  cameras: RecCamera[];
+  slots: number;
+  capacity: number | null;
+  licence: LicenceInfo;
+  over_capacity: boolean;
+  usable: number;
+}
+export interface SetupState {
+  licence: LicenceInfo;
+  cloud: { paired: boolean; business_name: string | null; location_name: string | null; online: boolean | null;
+           link_url: string | null; link_code: string | null; last_error: string | null };
+  setup_complete_at: string | null;
+  capacity: number | null;
+  protected_cameras: number;
+  cameras: number;
+}
+export type TestStepState = "waiting" | "ok" | "skipped";
+export interface TestCheck { state: "waiting" | "ok" | "failed" | "skipped"; note: string | null }
+export interface GuardTestStatus {
+  running: boolean;
+  camera_id?: string;
+  steps?: { person: TestStepState; products: TestStepState; exit: TestStepState };
+  checks?: Record<"incident" | "snapshot" | "clip" | "local_alert" | "cloud" | "phone", TestCheck>;
+  checks_running?: boolean;
+  checks_done?: boolean;
+  passed?: boolean;
+}
+
 export const api2 = {
   put: <T>(p: string, body: unknown) => request<T>("PUT", p, body),
 };

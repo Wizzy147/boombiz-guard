@@ -26,6 +26,11 @@ from .alarms.service import AlarmService
 from .api.ai_routes import ai_api
 from .api.incident_routes import inc_api, media_api
 from .api.notify_routes import notify_api
+from .api.setup_routes import setup_api
+from .licence import Licence
+from .setup.guard_test import GuardTest
+from .setup.service import SetupService
+from .setup.telemetry import SetupTelemetry
 from .cloud.client import CloudLink
 from .cloud.heartbeat import HEARTBEAT_SECONDS, Heartbeat, collect_health
 from .cloud.sync import SyncQueue
@@ -57,7 +62,7 @@ def _ui_dist() -> Path:
 
 
 UI_DIST = _ui_dist()
-VERSION = "0.4.3"
+VERSION = "0.5.0"
 
 
 def create_app(settings: Settings | None = None, *, db_path: str | None = None, cipher=None) -> FastAPI:  # noqa: ANN001
@@ -74,7 +79,10 @@ def create_app(settings: Settings | None = None, *, db_path: str | None = None, 
 
     holder: dict = {}
     streams = StreamManager(lambda cid: holder["devices"].stream_url(cid), on_event)
-    devices = DeviceService(db, vault, streams, settings)
+    # Plug-and-play: the licence (from the cloud) decides how many cameras
+    # Guard AI protects; no licence = Compatibility & Demo mode.
+    licence = Licence(db)
+    devices = DeviceService(db, vault, streams, settings, limit_fn=licence.limit)
     holder["devices"] = devices
     ai_events = EventService(db)
     ai = AIService(db, streams, ai_events, settings)
@@ -104,6 +112,17 @@ def create_app(settings: Settings | None = None, *, db_path: str | None = None, 
 
     # ── pop-up notifications: phones via the Boombiz cloud (outbound only) ──
     cloud = CloudLink(db, cipher)
+    cloud.licence = licence
+
+    def on_lower(limit: int) -> None:
+        # Called from a cloud answer (always inside the event loop).
+        asyncio.get_running_loop().create_task(devices.enforce_limit(limit))
+
+    licence.on_lower = on_lower
+    telemetry = SetupTelemetry(db, cloud, VERSION)
+    guard_test = GuardTest(db, ai, ai_events, incidents, alarms, cloud, licence)
+    setup = SetupService(db=db, devices=devices, streams=streams, ai=ai, licence=licence, cloud=cloud,
+                         telemetry=telemetry, version=VERSION)
     sync = SyncQueue(db, cloud, media_worker)
     def on_cloud_command(cmd: dict) -> bool:
         if cmd.get("type") == "INCIDENT_ACKNOWLEDGE":
@@ -194,6 +213,11 @@ def create_app(settings: Settings | None = None, *, db_path: str | None = None, 
     app.state.cloud = cloud
     app.state.sync = sync
     app.state.version = VERSION
+    app.state.licence = licence
+    app.state.telemetry = telemetry
+    app.state.guard_test = guard_test
+    app.state.setup = setup
+    app.include_router(setup_api)
     app.include_router(notify_api)
     app.include_router(inc_api)
     app.include_router(media_api)

@@ -360,6 +360,26 @@ class IncidentService:
         self._after_create(iid, severity)
         return self.get(iid)
 
+    # ── Guard Test (plug-and-play setup) ─────────────────────────────
+    def test_incident(self, camera_id: str) -> str:
+        """A real incident through the real media pipeline (snapshot + ~15 s
+        clip), so Guard Test proves recording works. Type GUARD_TEST, LOW: no
+        alarm rule matches it, it never pops up, and the cloud sync skips it."""
+        with self.db.session() as s:
+            if not s.get(Camera, camera_id):
+                raise IncidentError("Choose a camera.")
+        buf = self.buffers.get(camera_id)
+        if buf is None:
+            raise IncidentError("Guard isn't recording this camera yet. Give it a few seconds and try again.")
+        pre = min(10.0, buf.seconds)
+        rule = IncidentRule("GUARD_TEST", "test", "LOW", 0, "Guard setup test", per_track=False)
+        iid = self._create(rule, {"event_type": "GUARD_TEST", "camera_id": camera_id, "occurred_at": _now().isoformat(),
+                                  "metadata": {"note": "Setup test — not a real incident."}},
+                           f"{camera_id}:*:test:{time.monotonic()}",
+                           manual={"description": "Setup test — not a real incident.", "capture": True,
+                                   "pre_s": pre, "post_s": max(5.0, 15.0 - pre)})
+        return iid
+
     # ── review (§33–40) ──────────────────────────────────────────────
     def act(self, incident_id: str, action: str, session: Session, note: str | None = None,
             reason: str | None = None) -> dict:

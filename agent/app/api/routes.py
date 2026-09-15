@@ -146,7 +146,7 @@ async def remove_device(request: Request, device_id: str) -> dict:
 @api.get("/cameras")
 async def list_cameras(request: Request) -> dict:
     svc = _svc(request)
-    return {"cameras": svc.cameras(), "max_guard_cameras": svc.settings.max_guard_cameras}
+    return {"cameras": svc.cameras(), "max_guard_cameras": svc.max_cameras()}
 
 
 @api.get("/cameras/{camera_id}")
@@ -197,7 +197,7 @@ async def health(request: Request) -> dict:
     online = sum(1 for cid in guard if streams.get(cid, {}).get("status") in ("ONLINE", "DEGRADED"))
     return {
         "system": system_snapshot(),
-        "guard_cameras": {"online": online, "total": len(guard), "limit": svc.settings.max_guard_cameras},
+        "guard_cameras": {"online": online, "total": len(guard), "limit": svc.max_cameras()},
         "streams": streams,
         "events": list(request.app.state.events)[-50:],
     }

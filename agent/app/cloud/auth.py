@@ -110,4 +110,5 @@ class DeviceAuth:
         self._expires_at = time.time() + int(d.get("expires_in", 1800))
         self.link.state.update(paired=bool(d.get("paired")), business_name=d.get("business_name"),
                                location_name=d.get("location_name"), online=True, last_error=None)
+        self.link.apply_licence(d)
         return self._token

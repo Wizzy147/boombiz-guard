@@ -11,6 +11,13 @@ restricted/after-hours/exit rules, a shelf-interaction heuristic, correlation
 into `POSSIBLE_UNPAID_EXIT`, experimental smoke/fire, and CPU-aware load
 shedding. No cloud. See `docs/phase2-ai.md` — including its limits.
 
+**0.5.0 — plug-and-play.** Guard is free to download and runs in
+Compatibility & Demo mode until a package is bought online; **Auto Setup**
+finds the CCTV, benchmarks the PC, recommends cameras, guides the merchant
+through products/exit areas and a Guard Test, and reports setup KPIs. The
+Phase 1 wizard is now **Advanced setup** for technicians. See
+`docs/auto-setup.md`.
+
 Person model: YOLOX (Apache-2.0). Download `yolox_nano.onnx` (and optionally
 `yolox_tiny.onnx`) from the official Megvii YOLOX 0.1.1rc0 release into
 `agent/models/person/`; the agent refuses any file whose SHA-256 doesn't

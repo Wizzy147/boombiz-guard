@@ -60,13 +60,20 @@ def _now() -> datetime:
 
 
 class DeviceService:
-    def __init__(self, db: Database, vault: CredentialVault, streams: StreamManager, settings: Settings) -> None:
+    def __init__(self, db: Database, vault: CredentialVault, streams: StreamManager, settings: Settings,
+                 limit_fn=None) -> None:  # noqa: ANN001
         self.db = db
         self.vault = vault
         self.streams = streams
         self.settings = settings
+        # The camera limit comes from the licence (app/licence.py); without
+        # one (tests, tools) it's the settings value, as before licences.
+        self._limit_fn = limit_fn
         self.scanner: Scanner | None = None
         self.scan_error: str | None = None
+
+    def max_cameras(self) -> int:
+        return self._limit_fn() if self._limit_fn else self.settings.max_guard_cameras
 
     # ── discovery ───────────────────────────────────────────────────
     async def run_discovery(self) -> list[str]:
@@ -331,10 +338,13 @@ class DeviceService:
                 raise GuardError("That camera is no longer in the list.")
             if enabled and not cam.guard_enabled:
                 active = s.scalars(select(Camera).where(Camera.guard_enabled.is_(True))).all()
-                if len(active) >= self.settings.max_guard_cameras:
+                limit = self.max_cameras()
+                if limit <= 0:
+                    raise LimitError("Guard is in demo mode. Choose a Guard package to protect cameras continuously.")
+                if len(active) >= limit:
                     names = ", ".join(c.name or "a camera" for c in active)
                     raise LimitError(
-                        f"Guard Basic analyses up to {self.settings.max_guard_cameras} cameras. "
+                        f"Your Guard package protects up to {limit} {'camera' if limit == 1 else 'cameras'}. "
                         f"Turn one off first ({names})."
                     )
                 if cam.compatibility_status == Compatibility.INCOMPATIBLE.value:
@@ -348,6 +358,20 @@ class DeviceService:
         else:
             await self.streams.stop_guard(camera_id)
         return self.camera_dict(camera_id)
+
+    async def enforce_limit(self, limit: int) -> list[str]:
+        """The licence went down (refund, or a demo PC): stop the cameras over
+        the new limit. Keeps the lowest channel numbers — stable, and what an
+        installer reads off the recorder."""
+        with self.db.session() as s:
+            on = list(s.scalars(select(Camera).where(Camera.guard_enabled.is_(True))
+                                .order_by(Camera.device_id, Camera.channel_number)))
+            extra = [c.id for c in on[max(0, limit):]]
+        for cid in extra:
+            await self.set_guard(cid, False)
+        if extra:
+            self.db.audit("licence_limit_applied", None, limit=limit, stopped=len(extra))
+        return extra
 
     async def remove_device(self, device_id: str) -> None:
         for cam in self.cameras(device_id):

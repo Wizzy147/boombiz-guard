@@ -258,7 +258,9 @@ def open_setup() -> None:
         tok = (data_dir() / "setup-token").read_text(encoding="utf-8").strip()
     except OSError:
         tok = ""
-    webbrowser.open(f"{BASE}/#t={tok}&view=incidents")
+    # view=start: Auto Setup on a computer that hasn't finished setup yet,
+    # otherwise straight to Incidents (the setup screen decides).
+    webbrowser.open(f"{BASE}/#t={tok}&view=start")
 
 
 if __name__ == "__main__":

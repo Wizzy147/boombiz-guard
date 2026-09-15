@@ -131,6 +131,8 @@ class Heartbeat:
             self.link.state.update(paired=bool(d["paired"]), business_name=d.get("business_name"),
                                    location_name=d.get("location_name"), last_error=None)
             if d["paired"]:
-                self.link.state.update(pairing_code=None, pairing_expires_at=None)
+                self.link.state.update(pairing_code=None, pairing_expires_at=None, link_code=None, link_url=None,
+                                       link_expires_at=None)
             self.link.mark_link_checked()
+        self.link.apply_licence(d)  # a package bought or upgraded arrives within one beat
         return d

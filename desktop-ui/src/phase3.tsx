@@ -639,6 +639,8 @@ interface CloudStatus {
   last_error: string | null;
   pairing_code: string | null;
   pairing_expires_at: string | null;
+  link_code: string | null;
+  link_url: string | null;
   health_status: "ONLINE" | "DEGRADED" | "OFFLINE" | "UNKNOWN" | null;
   health_reasons: string[];
   last_heartbeat_at: string | null;
@@ -722,16 +724,33 @@ function PhoneAlertsSection({ canLink }: { canLink: boolean }) {
   useEffect(() => {
     void load();
   }, [load]);
-  // Poll quickly only while a code is on screen, waiting to be claimed.
+  // Poll quickly only while a code or browser sign-in is waiting to be claimed.
   const waiting = !!st?.pairing_code && !st.paired;
+  const linking = !!st?.link_code && !st.paired;
   useEffect(() => {
-    if (!waiting) return;
+    if (!waiting && !linking) return;
     const t = window.setInterval(() => {
       setNow(Date.now());
       void load();
     }, 4000);
     return () => window.clearInterval(t);
-  }, [waiting, load]);
+  }, [waiting, linking, load]);
+
+  // Plug-and-play: sign in on guard.getboombiz.com in the browser. The
+  // owner's password never touches this computer.
+  async function browserSignIn() {
+    setBusy(true);
+    setErr(null);
+    try {
+      const r = await api.post<{ link_url: string }>("/setup/link");
+      window.open(r.link_url, "_blank", "noopener");
+      await load();
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
   const secondsLeft = st?.pairing_expires_at ? Math.max(0, Math.round((new Date(st.pairing_expires_at).getTime() - now) / 1000)) : 0;
   const site = st?.cloud_url.replace(/^https?:\/\//, "") ?? "guard.getboombiz.com";
 
@@ -827,7 +846,20 @@ function PhoneAlertsSection({ canLink }: { canLink: boolean }) {
           {canLink ? (
             <>
               <div>
-                <label htmlFor="gard-code" className="mb-1 block font-semibold">Activation code</label>
+                <button type="button" className="btn-primary" disabled={busy} onClick={browserSignIn}>
+                  Sign in with your Boombiz account
+                </button>
+                {linking && st.link_url && (
+                  <p className="mt-2 text-slate-700">
+                    Finish in the browser that opened, or on your phone at{" "}
+                    <a href={st.link_url} target="_blank" rel="noopener" className="font-semibold underline">
+                      {st.link_url.replace(/^https?:\/\//, "")}
+                    </a>. This screen updates by itself.
+                  </p>
+                )}
+              </div>
+              <div className="border-t border-slate-200 pt-3">
+                <label htmlFor="gard-code" className="mb-1 block font-semibold">Or an activation code</label>
                 <p className="mb-2 text-slate-700">Made in Boombiz Guard → Locations → Activate a Guard computer.</p>
                 <div className="flex flex-wrap gap-2">
                   <input id="gard-code" value={code} onChange={(e) => setCode(e.target.value.toUpperCase())}
@@ -942,6 +974,22 @@ export function SettingsView({ person }: { person: Person | null }) {
         <div className="mt-2 flex gap-2">
           <input aria-label="Location code" className="field w-24 uppercase" maxLength={3} value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} />
           <button type="button" className="btn-outline" onClick={() => run(() => api2.put("/settings/location-code", { code }), "Saved.")}>Save</button>
+        </div>
+      </section>
+      <section className="card mt-4 p-4">
+        <h2 className="font-bold text-guard-ink">Setup</h2>
+        <p className="mt-1 text-sm text-guard-ink">
+          Run Automatic Setup again after moving cameras or changing your package. Advanced setup is for Boombiz
+          technicians and certified installers: add cameras by IP or stream address and see every channel.
+        </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {/* App listens for guard:navigate (App.tsx navigate()). */}
+          <button type="button" className="btn-primary" onClick={() => window.dispatchEvent(new CustomEvent("guard:navigate", { detail: "auto" }))}>
+            Run Automatic Setup
+          </button>
+          <button type="button" className="btn-outline" onClick={() => window.dispatchEvent(new CustomEvent("guard:navigate", { detail: "welcome" }))}>
+            Advanced setup
+          </button>
         </div>
       </section>
       <section className="mt-4 text-xs text-slate-700">

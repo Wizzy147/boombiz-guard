@@ -118,7 +118,9 @@ class SyncQueue:
                                   .order_by(Incident.updated_at).limit(200)))
             for i in rows:
                 last = i.updated_at
-                if i.deleted_at is not None or i.severity == "INFO":
+                # GUARD_TEST: the setup self-test's incident. Proves local
+                # recording; must never reach phones or the console as an alert.
+                if i.deleted_at is not None or i.severity == "INFO" or i.incident_type == "GUARD_TEST":
                     continue
                 queued += self._want(s, UPSERT, i.id, meta_priority(i.incident_type, i.severity), reset=True)
                 if i.snapshot_path:

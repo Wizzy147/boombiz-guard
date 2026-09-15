@@ -103,7 +103,7 @@ export function Snapshot({ cameraId, live = false }: { cameraId: string; live?: 
   return (
     <div className="relative aspect-video w-full overflow-hidden bg-guard-ink">
       {src && !failed ? (
-        <img src={src} alt="" className="h-full w-full object-cover" onError={() => setFailed(true)} />
+        <img src={src} alt="" draggable={false} className="h-full w-full object-cover" onError={() => setFailed(true)} />
       ) : null}
       {(!src || failed) && (
         <div className="absolute inset-0 flex items-center justify-center p-3 text-center text-xs text-white/80">

@@ -70,9 +70,17 @@ class CloudLink:
         self.base = (base_url or DEFAULT_CLOUD).rstrip("/")
         self.auth = DeviceAuth(self)
         self._last_link_check = float("-inf")
+        # app/licence.py — set by main; every cloud answer that carries a
+        # `licence` is handed to it.
+        self.licence = None
         self.state: dict = {"paired": False, "business_name": None, "location_name": None, "online": None,
                             "last_error": None, "pairing_code": None, "pairing_expires_at": None,
+                            "link_code": None, "link_url": None, "link_expires_at": None,
                             "health_status": None, "health_reasons": [], "last_heartbeat_at": None}
+
+    def apply_licence(self, d: dict) -> None:
+        if self.licence is not None and isinstance(d, dict) and "licence" in d:
+            self.licence.update(d["licence"])
 
     # ── secret storage (encrypted) ───────────────────────────────────
     def _get(self, key: str) -> str | None:
@@ -150,12 +158,53 @@ class CloudLink:
         self.db.audit("cloud_pairing_started", d["device_id"])
         return {"pairing_code": d["pairing_code"], "expires_at": d["expires_at"]}
 
+    # ── browser sign-in (plug-and-play, lib/guard/link.ts in the cloud) ──
+    async def start_link(self, name: str, version: str, summary: dict | None) -> dict:
+        """Ask for a guard.getboombiz.com/link URL. The PC gets its secret now,
+        linked to nobody until the owner signs in and confirms in a browser —
+        the merchant's password never reaches this computer."""
+        body = {
+            "installation_id": self.auth.installation_id(), "name": name[:60], "agent_version": version,
+            "os_version": f"{platform.system()} {platform.release()} ({platform.version()})"[:100],
+            "fingerprint_hash": self.auth.fingerprint(),
+            **({"summary": summary} if summary else {}),
+        }
+        try:
+            async with httpx.AsyncClient(timeout=20) as c:
+                r = await c.post(f"{self.base}/api/guard/v1/link/start", json=body)
+        except httpx.HTTPError:
+            raise CloudError("Can't reach Boombiz. Check this computer's internet connection and try again.") from None
+        if r.status_code == 404:
+            raise CloudError("Boombiz isn't ready for browser sign-in yet. Use an activation code instead.")
+        if r.status_code != 200:
+            raise CloudError(_error_from(r, "Boombiz couldn't start sign-in. Try again in a minute."))
+        d = r.json()
+        self._store_secret(d["device_id"], d["device_secret"])
+        self.state.update(paired=False, business_name=None, location_name=None, link_code=d["link_code"],
+                          link_url=d["link_url"], link_expires_at=d.get("expires_at"), online=True, last_error=None)
+        self.db.audit("cloud_link_started", d["device_id"])
+        return {"link_url": d["link_url"], "link_code": d["link_code"], "expires_at": d.get("expires_at")}
+
+    async def send_test_alert(self) -> dict:
+        """Guard Test's last step: the owner's phone gets "Your business protection is active"."""
+        async with httpx.AsyncClient(timeout=20) as c:
+            headers = await self.auth.headers(c)
+            if headers is None:
+                raise CloudError("This computer isn't linked to your Boombiz account.")
+            r = await c.post(f"{self.base}/api/guard/v1/setup/test-alert", json={}, headers=headers)
+        if r.status_code == 404:
+            raise CloudError("Boombiz can't send test alerts yet.")
+        if r.status_code != 200:
+            raise CloudError(_error_from(r, "The test alert couldn't be sent."))
+        return r.json()
+
     def unpair(self) -> None:
         self._put("cloud_device_token", None)
         self._put("cloud_device_id", None)
         self.auth.invalidate()
         self.state.update(paired=False, business_name=None, location_name=None, pairing_code=None,
-                          pairing_expires_at=None, health_status=None, health_reasons=[], last_heartbeat_at=None)
+                          pairing_expires_at=None, link_code=None, link_url=None, link_expires_at=None,
+                          health_status=None, health_reasons=[], last_heartbeat_at=None)
         self.db.audit("cloud_unpaired", None)
 
     async def refresh(self) -> dict:
@@ -175,9 +224,13 @@ class CloudLink:
                 d = r.json()
                 self.state.update(paired=bool(d.get("paired")), business_name=d.get("business_name"), online=True,
                                   last_error=None)
+                if "location_name" in d:
+                    self.state["location_name"] = d.get("location_name")
                 self.mark_link_checked()
+                self.apply_licence(d)
                 if d.get("paired"):
-                    self.state.update(pairing_code=None, pairing_expires_at=None)
+                    self.state.update(pairing_code=None, pairing_expires_at=None, link_code=None, link_url=None,
+                                      link_expires_at=None)
             else:
                 self.state.update(online=True, last_error="Boombiz returned an error.")
         except AuthRejected as e:
@@ -194,7 +247,7 @@ class CloudLink:
         ask every time, so a phone claim shows up fast. Linked: heartbeats
         already carry the link state, so only ask when nothing has confirmed
         it for 15 min — saves most of this PC's cloud requests."""
-        linked = self.state.get("paired") and not self.state.get("pairing_code")
+        linked = self.state.get("paired") and not self.state.get("pairing_code") and not self.state.get("link_code")
         if linked and time.monotonic() - self._last_link_check < LINKED_CHECK_SECONDS:
             return self.state
         return await self.refresh()

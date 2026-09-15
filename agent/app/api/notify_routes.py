@@ -28,13 +28,15 @@ async def notifications(r: Request, after: str | None = None, limit: int = 50) -
 @notify_api.get("/cloud/status")
 async def cloud_status(r: Request) -> dict:
     link = r.app.state.cloud
-    # While a pairing code is waiting, ask the cloud now instead of on the
-    # 60-second loop, so the screen flips to "Linked" as the owner claims it.
-    if link.state.get("pairing_code") and not link.state.get("paired"):
+    # While a pairing code or browser sign-in is waiting, ask the cloud now
+    # instead of on the 60-second loop, so the screen flips to "Linked" as the
+    # owner confirms it.
+    if (link.state.get("pairing_code") or link.state.get("link_code")) and not link.state.get("paired"):
         await link.refresh()
     sync = getattr(r.app.state, "sync", None)
+    lic = getattr(r.app.state, "licence", None)
     return {**link.state, "queued": link.queued(), "cloud_url": link.base,
-            "sync": sync.status() if sync else None}
+            "sync": sync.status() if sync else None, "licence": lic.current() if lic else None}
 
 
 @notify_api.post("/cloud/pair")

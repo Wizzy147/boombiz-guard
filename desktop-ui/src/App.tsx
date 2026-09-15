@@ -8,7 +8,6 @@ import {
   HardDrive,
   MemoryStick,
   Plus,
-  PlugZap,
   RefreshCw,
   Search,
   ShieldCheck,
@@ -27,18 +26,33 @@ import {
 import { CompatBadge, ErrorNote, Lockup, Screen, Snapshot, Spinner } from "./ui";
 import { AiTestView, EventsView, HoursView, ZonesView } from "./phase2";
 import { AlarmsView, GuardModeView, IncidentsView, SettingsView, SignInBar, usePerson } from "./phase3";
+import { AutoSetup } from "./autosetup";
+import { PowerChecklist } from "./power";
 
 /*
- * The Phase 1 installer flow (§26): Welcome → PC check → Scan → Devices
- * (connect / add manually) → Channels → Choose Guard cameras (max 2) →
- * Connection test → Done. A Status view sits beside it for after setup.
+ * Two ways to set Guard up:
+ *
+ *   Auto Setup (default, autosetup.tsx) — plug-and-play for merchants and
+ *   BDOs: finds the CCTV, recommends cameras, guided areas, Guard Test.
+ *
+ *   Advanced Setup (this file, the Phase 1 installer flow §26) — for
+ *   Boombiz technicians and certified installers: Welcome → PC check →
+ *   Scan → Devices (connect / add manually by IP or stream address) →
+ *   Channels → Choose Guard cameras → Connection test → Done.
  */
 
 type Step =
+  | "auto"
   | "welcome" | "pc" | "scan" | "devices" | "channels" | "select" | "test" | "done" | "status"
   | "zones" | "aitest" | "events" | "hours" | "incidents" | "guardmode" | "alarms" | "settings";
 
+/** Other screens (Settings) ask to switch screen without holding setStep. */
+export function navigate(step: "auto" | "welcome") {
+  window.dispatchEvent(new CustomEvent("guard:navigate", { detail: step }));
+}
+
 const TOOLS: { key: Step; label: string }[] = [
+  { key: "auto", label: "Setup" },
   { key: "incidents", label: "Incidents" },
   { key: "guardmode", label: "Guard Mode" },
   { key: "zones", label: "Zones" },
@@ -59,9 +73,24 @@ const FLOW: { key: Step; label: string }[] = [
   { key: "test", label: "Test" },
 ];
 
+const DEEP_VIEWS = ["incidents", "guardmode", "alarms", "settings"];
+
 export default function App() {
   const [step, setStep] = useState<Step>(() =>
-    deepLink.view && ["incidents", "guardmode", "alarms", "settings"].includes(deepLink.view) ? (deepLink.view as Step) : "welcome");
+    deepLink.view && DEEP_VIEWS.includes(deepLink.view) ? (deepLink.view as Step) : "auto");
+  // No explicit screen asked for (installer, Start menu): a finished setup
+  // opens on Incidents, an unfinished one on Auto Setup.
+  useEffect(() => {
+    if (!hasToken() || (deepLink.view && DEEP_VIEWS.includes(deepLink.view))) return;
+    api.get<{ setup_complete_at: string | null }>("/setup/state")
+      .then((s) => s.setup_complete_at && setStep((cur) => (cur === "auto" ? "incidents" : cur)))
+      .catch(() => undefined);
+  }, []);
+  useEffect(() => {
+    const go = (e: Event) => setStep((e as CustomEvent<Step>).detail);
+    window.addEventListener("guard:navigate", go);
+    return () => window.removeEventListener("guard:navigate", go);
+  }, []);
   const [devices, setDevices] = useState<Device[]>([]);
   const [cameras, setCameras] = useState<Camera[]>([]);
   const [limit, setLimit] = useState(2);
@@ -101,7 +130,16 @@ export default function App() {
   return (
     <Shell step={step} setStep={setStep}>
       {personNeeded && <SignInBar person={person} onChange={refreshPerson} />}
-      {step === "welcome" && <Welcome onStart={() => setStep("pc")} />}
+      {step === "auto" && (
+        <AutoSetup
+          onAdvanced={() => {
+            api.post("/setup/advanced").catch(() => undefined);
+            setStep("welcome");
+          }}
+          onFinished={() => setStep("incidents")}
+        />
+      )}
+      {step === "welcome" && <Welcome onStart={() => setStep("pc")} onAuto={() => setStep("auto")} />}
       {step === "pc" && <PcCheck onNext={() => setStep("scan")} />}
       {step === "scan" && (
         <Scan
@@ -150,7 +188,7 @@ function Shell({ step, setStep, children }: { step: Step; setStep: (s: Step) => 
     <div className="flex min-h-screen flex-col">
       <header className="bg-guard-ink text-white">
         <div className="mx-auto flex max-w-4xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
-          <button type="button" onClick={() => setStep("welcome")} aria-label="Setup">
+          <button type="button" onClick={() => setStep("auto")} aria-label="Setup">
             <Lockup />
           </button>
           <nav className="flex flex-wrap justify-end gap-x-4 gap-y-1" aria-label="Guard tools">
@@ -190,15 +228,21 @@ function Shell({ step, setStep, children }: { step: Step; setStep: (s: Step) => 
 }
 
 // ── 1. welcome ────────────────────────────────────────────────────────
-function Welcome({ onStart }: { onStart: () => void }) {
+function Welcome({ onStart, onAuto }: { onStart: () => void; onAuto: () => void }) {
   return (
     <Screen
-      title="Boombiz Guard"
-      lead="Connect your existing CCTV to intelligent monitoring. This takes about 10 minutes and doesn't change anything on the CCTV recorder."
+      step="Advanced setup"
+      title="Advanced setup"
+      lead="For Boombiz technicians and certified installers: add recorders and cameras by IP address or stream address, and see every channel's stream details. Doesn't change anything on the CCTV recorder."
       actions={
-        <button type="button" className="btn-primary" onClick={onStart}>
-          Start setup <ArrowRight className="h-4 w-4" />
-        </button>
+        <>
+          <button type="button" className="btn-primary" onClick={onStart}>
+            Start advanced setup <ArrowRight className="h-4 w-4" />
+          </button>
+          <button type="button" className="btn-outline" onClick={onAuto}>
+            Back to Automatic Setup
+          </button>
+        </>
       }
     >
       <ul className="grid gap-3 sm:grid-cols-3">
@@ -807,46 +851,6 @@ function Done({ cameras, onStatus }: { cameras: Camera[]; onStatus: () => void }
       </ul>
       <PowerChecklist />
     </Screen>
-  );
-}
-
-// Power checklist (owner decision 2026-09-14). If this computer is off, Guard
-// isn't watching — in Nigeria that mostly means a power cut. The installer
-// already stopped Windows sleeping; these are the steps software can't do.
-// Ticks are a reminder for the installer, not saved anywhere.
-const POWER_STEPS = [
-  "A UPS or inverter powers this computer, the CCTV recorder and the Wi-Fi router, so a power cut doesn't switch Guard off.",
-  "In the computer's BIOS, \"Restore on AC power loss\" (or \"After power failure\") is set to Power On, so it turns itself back on when light returns.",
-  "Business hours are set in Guard. The siren for a damaged or covered camera only sounds after closing, and without hours Guard treats the shop as always open.",
-  "Staff know to tell the manager before moving or cleaning a camera — a covered or disconnected camera alerts the owner, manager and security.",
-];
-
-function PowerChecklist() {
-  const [done, setDone] = useState<boolean[]>(() => POWER_STEPS.map(() => false));
-  return (
-    <section className="mt-6 border border-guard-ink/15 p-4">
-      <h3 className="flex items-center gap-2 font-bold text-guard-ink">
-        <PlugZap className="h-5 w-5" aria-hidden /> Before you leave the shop
-      </h3>
-      <p className="mt-1 text-sm text-slate-700">
-        Guard stops watching when this computer is off. This computer won't sleep or hibernate now — check the rest:
-      </p>
-      <ul className="mt-3 space-y-2">
-        {POWER_STEPS.map((s, i) => (
-          <li key={s}>
-            <label className="flex items-start gap-2 text-[15px] text-guard-ink">
-              <input
-                type="checkbox"
-                className="mt-1 h-4 w-4 shrink-0 accent-black"
-                checked={done[i]}
-                onChange={() => setDone((d) => d.map((v, j) => (j === i ? !v : v)))}
-              />
-              {s}
-            </label>
-          </li>
-        ))}
-      </ul>
-    </section>
   );
 }
 
