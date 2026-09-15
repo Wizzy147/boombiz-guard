@@ -62,7 +62,7 @@ def _ui_dist() -> Path:
 
 
 UI_DIST = _ui_dist()
-VERSION = "0.5.0"
+VERSION = "2.5.2"
 
 
 def create_app(settings: Settings | None = None, *, db_path: str | None = None, cipher=None) -> FastAPI:  # noqa: ANN001

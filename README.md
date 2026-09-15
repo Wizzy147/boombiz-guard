@@ -11,7 +11,7 @@ restricted/after-hours/exit rules, a shelf-interaction heuristic, correlation
 into `POSSIBLE_UNPAID_EXIT`, experimental smoke/fire, and CPU-aware load
 shedding. No cloud. See `docs/phase2-ai.md` — including its limits.
 
-**0.5.0 — plug-and-play.** Guard is free to download and runs in
+**2.5.2 — plug-and-play.** Guard is free to download and runs in
 Compatibility & Demo mode until a package is bought online; **Auto Setup**
 finds the CCTV, benchmarks the PC, recommends cameras, guides the merchant
 through products/exit areas and a Guard Test, and reports setup KPIs. The

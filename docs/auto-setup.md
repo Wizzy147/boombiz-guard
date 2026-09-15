@@ -1,4 +1,4 @@
-# Auto Setup — plug-and-play Guard (0.5.0)
+# Auto Setup — plug-and-play Guard (2.5.2)
 
 Owner decision 2026-09-15: plug-and-play is a core product requirement, not an
 installation convenience. A shop with supported CCTV should go from download to
@@ -30,7 +30,7 @@ The cloud's answer arrives with every sign-in, link check and heartbeat.
 |---|---|
 | `ACTIVE` | the package's `ai_cameras` (Starter 2 / Business 4 / Pro 8 — placeholder tiers, `lib/guard/tiers.ts` in the web repo) |
 | `LEGACY` | 2 — shops a BDO set up before packages (they have a cloud subscription) |
-| `GRANDFATHERED` | 2 — local only: this PC was already protecting cameras before 0.5.0 and hasn't heard from the cloud yet |
+| `GRANDFATHERED` | 2 — local only: this PC was already protecting cameras before 2.5.2 and hasn't heard from the cloud yet |
 | `DEMO` / `REVOKED` | 0 — Compatibility & Demo mode: scan, connect, test, recommend; no continuous protection |
 
 Only an explicit cloud answer lowers the limit; offline, errors and old clouds
