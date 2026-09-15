@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
+    <!-- Android TV boxes have neither a touchscreen nor a camera: never required. -->
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+    <uses-feature android:name="android.software.leanback" android:required="false" />
+
+    <application
+        android:name=".GuardApp"
+        android:allowBackup="false"
+        android:banner="@drawable/banner"
+        android:icon="@drawable/icon"
+        android:label="Boombiz Guard"
+        android:supportsRtl="true"
+        android:theme="@style/Guard"
+        android:usesCleartextTraffic="true">
+        <!-- Cleartext only for RTSP/HTTP to the shop's own recorder on the LAN; the cloud is HTTPS. -->
+
+        <activity
+            android:name=".ui.MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <activity android:name=".ui.CameraEditActivity" android:exported="false" />
+        <activity android:name=".ui.ZoneEditorActivity" android:exported="false" />
+        <activity android:name=".ui.HoursActivity" android:exported="false" />
+        <activity android:name=".ui.IncidentsActivity" android:exported="false" />
+
+        <service
+            android:name=".watch.WatchService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Continuous on-premises CCTV analysis for shop security" />
+        </service>
+
+        <receiver android:name=".watch.BootReceiver" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="com.htc.intent.action.QUICKBOOT_POWERON" />
+            </intent-filter>
+        </receiver>
+        <receiver android:name=".watch.WatchdogReceiver" android:exported="false" />
+    </application>
+</manifest>

@@ -1,0 +1,11 @@
+.gradle/
+build/
+app/build/
+local.properties
+*.iml
+.idea/
+captures/
+*.keystore
+# Models stay out of git, like agent/models/ — copy from agent/models/person/ before building.
+app/src/main/assets/*.onnx
+*.log

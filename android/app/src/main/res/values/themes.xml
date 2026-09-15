@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="ink">#0F172A</color>
+    <color name="paper">#FFFFFF</color>
+    <color name="yellow">#FACC15</color>
+    <color name="red">#DC2626</color>
+    <color name="green">#16A34A</color>
+    <color name="line">#E2E8F0</color>
+
+    <style name="Guard" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:colorPrimary">@color/ink</item>
+        <item name="android:colorPrimaryDark">@color/ink</item>
+        <item name="android:colorAccent">@color/ink</item>
+        <item name="android:windowBackground">@color/paper</item>
+        <item name="android:textColorPrimary">@color/ink</item>
+        <item name="android:statusBarColor">@color/ink</item>
+    </style>
+</resources>
