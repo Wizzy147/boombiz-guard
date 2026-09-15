@@ -46,6 +46,14 @@ another PC's token doesn't work.
 | `GRANDFATHERED` | 2 — local only: this PC was protecting before licences and hasn't heard from the cloud yet |
 | `DEMO` / `REVOKED` | 0 — Compatibility & Demo mode: scan, connect, test, recommend |
 
+**Cloud services follow the same plan.** Without a live plan (expired past
+grace, or setup never paid) the cloud refuses alert pushes, incident sync and
+media uploads (402 — the PC keeps them queued and paused retries don't use up
+the media retry limit), sends no phone, WhatsApp or email alerts (fire
+included), disables incident links, and the owner's console shows only the
+Plan page. Device sign-in, heartbeats and licence checks keep working so a
+renewal reaches the PC within a heartbeat.
+
 Only an explicit cloud answer changes the plan; offline, errors and old clouds
 change nothing. A licence sent without a token (signing key not set) is trusted
 for 72 hours of the current run only. Every minute (and after each answer) the

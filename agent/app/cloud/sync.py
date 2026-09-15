@@ -273,7 +273,7 @@ class SyncQueue:
                     paused = len(outcome) > 2 and outcome[2] == PAUSED_RETRY_S
                     # A paused plan isn't a failed upload: don't let it use up the media retries.
                     self._retry(jid, outcome[1], now, delay=outcome[2] if len(outcome) > 2 else None,
-                                media=op != UPSERT and not paused)
+                                media=op != UPSERT and not paused, counted=not paused)
                     retried += 1
                 else:
                     self._fail(jid, outcome[1])
@@ -372,11 +372,17 @@ class SyncQueue:
             j.status, j.last_error = "COMPLETED", None
             return 1
 
-    def _retry(self, jid: str, err: str, now: datetime, delay: float | None = None, media: bool = False) -> None:
+    def _retry(self, jid: str, err: str, now: datetime, delay: float | None = None, media: bool = False,
+               counted: bool = True) -> None:
         with self.db.session() as s:
             j = s.get(SyncJob, jid)
             if j.status != "PROCESSING":
                 return
+            if not counted:
+                # Plan paused (402): this try didn't happen as far as the media
+                # retry limit is concerned, so a long lapse can't use it up and
+                # fail the clip on the first real hiccup after renewal.
+                j.attempts = max(0, j.attempts - 1)
             if media and j.attempts >= MEDIA_MAX_ATTEMPTS:
                 j.status, j.last_error = "FAILED", err
                 return
