@@ -62,7 +62,7 @@ def _ui_dist() -> Path:
 
 
 UI_DIST = _ui_dist()
-VERSION = "2.5.2"
+VERSION = "2.5.3"
 
 
 def create_app(settings: Settings | None = None, *, db_path: str | None = None, cipher=None) -> FastAPI:  # noqa: ANN001
@@ -113,6 +113,11 @@ def create_app(settings: Settings | None = None, *, db_path: str | None = None, 
     # ── pop-up notifications: phones via the Boombiz cloud (outbound only) ──
     cloud = CloudLink(db, cipher)
     cloud.licence = licence
+    # Signed licences name this device + installation; the stored one is
+    # re-verified now that we know who we are.
+    licence.identity = lambda: (cloud.device_id(), cloud.auth.installation_id())
+    licence._state = licence._load()
+    licence._last_limit = licence.limit()
 
     def on_lower(limit: int) -> None:
         # Called from a cloud answer (always inside the event loop).
@@ -179,6 +184,8 @@ def create_app(settings: Settings | None = None, *, db_path: str | None = None, 
             # link state and this asks at most every 15 min (cloud/client.py).
             asyncio.create_task(periodic("cloud status", 60, cloud.refresh_if_due, 3)),
             asyncio.create_task(periodic("cloud heartbeat", HEARTBEAT_SECONDS, heartbeat.beat, 15)),
+            # A plan that runs out stops protection even with no internet.
+            asyncio.create_task(periodic("licence expiry", 60, licence.check, 20)),
             asyncio.create_task(periodic("incident sync scan", 5, sync.scan, 6)),
             asyncio.create_task(periodic("incident sync", 5, sync.process, 9)),
         ]

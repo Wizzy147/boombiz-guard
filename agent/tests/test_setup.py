@@ -64,11 +64,99 @@ def test_missing_or_bad_answer_never_lowers(tmp_path, monkeypatch):
     assert lic.limit() == 2
 
 
-def test_licence_survives_restart(tmp_path, monkeypatch):
+# ── signed licences (monthly plan) ───────────────────────────────────
+@pytest.fixture
+def signer(monkeypatch):
+    """A throwaway Ed25519 key the agent trusts for this test."""
+    import base64 as b64
+    import json as js
+    import time as tm
+
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    key = Ed25519PrivateKey.generate()
+    raw = key.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+    monkeypatch.setenv("GUARD_LICENCE_PUBKEY", b64.b64encode(raw).decode())
+    monkeypatch.delenv("GUARD_MAX_CAMERAS", raising=False)
+
+    def make(status="ACTIVE", cams=4, days=30, device="dev1", inst="inst_a", k=key):
+        payload = js.dumps({"v": 1, "d": device, "i": inst, "s": status, "c": cams,
+                            "u": int(tm.time() + days * 86400) if days is not None else None, "t": int(tm.time())}).encode()
+        enc = lambda b: b64.urlsafe_b64encode(b).decode().rstrip("=")  # noqa: E731
+        return {"status": status, "ai_cameras": cams, "token": f"{enc(payload)}.{enc(k.sign(payload))}"}
+
+    return make
+
+
+def _signed(db, ident=("dev1", "inst_a")):
+    return Licence(db, identity=lambda: ident)
+
+
+def test_signed_licence_survives_restart_offline(tmp_path, signer):
+    db = _db(tmp_path)
+    assert _signed(db).update(signer(cams=8))
+    assert _signed(db).limit() == 8  # rebooted with no internet: still protecting
+
+
+def test_unsigned_licence_is_not_trusted_after_restart(tmp_path, monkeypatch):
     monkeypatch.delenv("GUARD_MAX_CAMERAS", raising=False)
     db = _db(tmp_path)
-    Licence(db).update({"status": "ACTIVE", "tier": "PRO", "name": "Guard Pro", "ai_cameras": 8})
-    assert Licence(db).limit() == 8  # offline after a reboot: still protecting
+    lic = Licence(db)
+    lic.update({"status": "ACTIVE", "ai_cameras": 4, "valid_until": None})
+    assert lic.limit() == 4  # this run only
+    assert Licence(db).limit() == 0
+
+
+def test_expired_plan_stops_protection_and_lowers(tmp_path, signer):
+    lic = _signed(_db(tmp_path))
+    lowered = []
+    lic.on_lower = lowered.append
+    lic.update(signer(days=30))
+    assert lic.limit() == 4
+    lic.update(signer(days=-1))  # renewal never came: valid_until passed
+    assert lic.limit() == 0 and lowered == [0]
+    assert lic.current()["status"] == "EXPIRED"
+
+
+def test_plan_runs_out_while_offline(tmp_path, signer, monkeypatch):
+    import app.licence as L
+
+    lic = _signed(_db(tmp_path))
+    lowered = []
+    lic.on_lower = lowered.append
+    lic.update(signer(days=1))
+    assert lic.check() == 4
+    real = L.time.time
+    monkeypatch.setattr(L.time, "time", lambda: real() + 2 * 86400)
+    assert lic.check() == 0 and lowered == [0]
+
+
+def test_token_for_another_pc_or_key_is_refused(tmp_path, signer):
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    lic = _signed(_db(tmp_path))
+    assert not lic.update(signer(device="someone-else"))
+    assert not lic.update(signer(inst="inst_other"))
+    assert not lic.update(signer(k=Ed25519PrivateKey.generate()))
+    assert lic.limit() == 0
+
+
+def test_edited_database_is_caught(tmp_path, signer):
+    db = _db(tmp_path)
+    _signed(db).update(signer(cams=4))
+    with db.session() as s:  # the shop "upgrades" itself in guard.db
+        row = s.get(Setting, "licence_json")
+        d = json.loads(row.value)
+        d["ai_cameras"], d["valid_until"] = 16, 4102444800
+        row.value = json.dumps(d)
+    assert _signed(db).limit() == 4  # the signed payload wins over the edited fields
+    with db.session() as s:
+        row = s.get(Setting, "licence_json")
+        d = json.loads(row.value)
+        d["token"] = d["token"][:-4] + "AAAA"
+        row.value = json.dumps(d)
+    assert _signed(db).limit() == 0
 
 
 def test_env_override_wins(tmp_path, monkeypatch):
@@ -194,9 +282,9 @@ def test_demo_mode_cannot_protect(client):
     ids = [x["id"] for x in rec["cameras"] if x["recommended"]]
     assert ids  # still recommends, so the merchant sees what they'd get
     r = c.post("/api/v1/setup/apply", json={"camera_ids": ids[:1]})
-    assert r.status_code == 400 and "package" in r.json()["detail"]
+    assert r.status_code == 400 and "Activate your Guard plan" in r.json()["detail"]
     r = c.post(f"/api/v1/cameras/{ids[0]}/enable")
-    assert r.status_code == 409 and "demo mode" in r.json()["detail"]
+    assert r.status_code == 409 and "isn't active" in r.json()["detail"]
 
 
 def test_licensed_apply_and_areas(client):

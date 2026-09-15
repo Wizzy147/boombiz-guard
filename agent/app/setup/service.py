@@ -38,9 +38,9 @@ log = logging.getLogger(__name__)
 
 SETUP_ZONE_SUFFIX = " (Setup)"
 DONE_KEY = "setup_complete_at"
-# Tiers the cloud sells, largest first. Only used to cap a demo-mode
-# recommendation; prices always come from the cloud's /link page.
-LARGEST_PACKAGE = 8
+# The most cameras one PC can be licensed for (web lib/guard/tiers.ts). Only
+# caps a demo-mode recommendation; prices always come from the cloud.
+LARGEST_PACKAGE = 16
 
 
 class SetupService:
@@ -218,7 +218,7 @@ class SetupService:
     async def apply(self, camera_ids: list[str]) -> dict:
         lic = self.licence.current()
         if not lic["protects"]:
-            raise ValueError("Choose a Guard package first — then Guard can protect these cameras.")
+            raise ValueError("Activate your Guard plan first — then Guard can protect these cameras.")
         wanted = list(dict.fromkeys(camera_ids))
         if not wanted:
             raise ValueError("Choose at least one camera.")

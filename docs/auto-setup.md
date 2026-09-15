@@ -22,19 +22,34 @@ Auto Setup never shows RTSP, ONVIF, H.264, ports, stream URLs, substreams or IP
 addresses. When it gives up it says **Technical assistance required** and offers
 a Boombiz visit and Advanced setup; the reason is reported (see KPIs).
 
-## Licence (app/licence.py)
+## Plan and licence (app/licence.py)
 
-The cloud's answer arrives with every sign-in, link check and heartbeat.
+Pricing (owner decision 2026-09-15, web `lib/guard/tiers.ts`): **₦35,000 setup
+fee** for everyone — self-setup or BDO — including the **first month free**;
+then **₦10,000/month for up to 4 AI cameras, +₦7,000/month per extra camera**.
+The monthly plan covers local protection too: when it lapses past 7 grace days,
+the PC drops to demo mode.
+
+The cloud's answer arrives with every sign-in, link check and heartbeat, as a
+**signed token** (Ed25519; web `lib/guard/licenceToken.ts`, key
+`BOOMBIZ_GUARD_LICENCE_KEY`; the public half is built into `app/licence.py`).
+The token names this device and installation and carries `valid_until` (end of
+the paid/free month + grace), so the PC keeps protecting through an internet
+outage and stops on its own if nobody renews. Editing guard.db or copying
+another PC's token doesn't work.
 
 | status | cameras protected |
 |---|---|
-| `ACTIVE` | the package's `ai_cameras` (Starter 2 / Business 4 / Pro 8 — placeholder tiers, `lib/guard/tiers.ts` in the web repo) |
-| `LEGACY` | 2 — shops a BDO set up before packages (they have a cloud subscription) |
-| `GRANDFATHERED` | 2 — local only: this PC was already protecting cameras before 2.5.2 and hasn't heard from the cloud yet |
-| `DEMO` / `REVOKED` | 0 — Compatibility & Demo mode: scan, connect, test, recommend; no continuous protection |
+| `ACTIVE` | the plan's camera count, until `valid_until` |
+| `LEGACY` | 4 — shops a BDO set up before the monthly plan; same dates and renewal |
+| `EXPIRED` | 0 — the plan lapsed; renewing switches it back on within a heartbeat |
+| `GRANDFATHERED` | 2 — local only: this PC was protecting before licences and hasn't heard from the cloud yet |
+| `DEMO` / `REVOKED` | 0 — Compatibility & Demo mode: scan, connect, test, recommend |
 
-Only an explicit cloud answer lowers the limit; offline, errors and old clouds
-change nothing. When it goes down, the cameras over the limit stop
+Only an explicit cloud answer changes the plan; offline, errors and old clouds
+change nothing. A licence sent without a token (signing key not set) is trusted
+for 72 hours of the current run only. Every minute (and after each answer) the
+agent re-checks: when the limit goes down, the cameras over it stop
 (`DeviceService.enforce_limit`). `GUARD_MAX_CAMERAS` overrides everything (lab,
 support).
 

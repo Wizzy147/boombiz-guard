@@ -438,8 +438,8 @@ function Ready({ rec, onActivate, onHelp }: { rec: Recommendation; onActivate: (
       )}
       <ErrorNote message={err} />
       <p className="mt-4 text-sm text-slate-700">
-        Activating opens your browser: sign in or create your account, link this computer, and choose a package. Nothing
-        is charged until you pay there.
+        Activating opens your browser: sign in or create your account, link this computer, and pay the one-time setup fee
+        — it includes your first month. Nothing is charged until you pay there.
       </p>
     </Screen>
   );
@@ -462,7 +462,7 @@ function WaitForLicence({ cloudUrl, onLicensed, onBack }: { cloudUrl: string; on
     <Screen
       title={st?.cloud.paired ? `Linked to ${st.cloud.business_name ?? "your business"}` : "Finish in your browser"}
       lead={st?.cloud.paired
-        ? "Now choose your Guard package in the browser. As soon as the payment goes through, setup carries on here by itself."
+        ? "Now pay the setup fee in the browser. As soon as the payment goes through, setup carries on here by itself."
         : "Sign in or create your account, then tap “Link this computer”. This screen moves on by itself."}
       actions={<button type="button" className="btn-outline" onClick={onBack}>Back</button>}
     >
@@ -516,7 +516,7 @@ function Cameras({ rec, onApplied }: { rec: Recommendation; onApplied: () => voi
       title={`${rec.cameras.length} CCTV ${rec.cameras.length === 1 ? "camera" : "cameras"} found`}
       lead={
         <>
-          Your {rec.licence.name ?? "Guard"} plan protects {limit} {limit === 1 ? "camera" : "cameras"} with AI.
+          Your Guard plan protects {limit} {limit === 1 ? "camera" : "cameras"} with AI.
           {names.length > 0 && <> We recommend <b>{names.join(" + ")}</b>.</>} Your other cameras keep recording as normal CCTV.
         </>
       }

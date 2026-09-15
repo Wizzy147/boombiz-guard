@@ -86,6 +86,17 @@ export default function App() {
       .then((s) => s.setup_complete_at && setStep((cur) => (cur === "auto" ? "incidents" : cur)))
       .catch(() => undefined);
   }, []);
+  // Plan ended or running out: say so on every screen (the monthly plan
+  // covers local protection too).
+  const [plan, setPlan] = useState<{ status: string; days_left: number | null; valid_until: string | null } | null>(null);
+  useEffect(() => {
+    if (!hasToken()) return;
+    const load = () => api.get<{ licence: { status: string; days_left: number | null; valid_until: string | null } }>("/setup/state")
+      .then((s) => setPlan(s.licence)).catch(() => undefined);
+    void load();
+    const t = window.setInterval(load, 60_000);
+    return () => window.clearInterval(t);
+  }, []);
   useEffect(() => {
     const go = (e: Event) => setStep((e as CustomEvent<Step>).detail);
     window.addEventListener("guard:navigate", go);
@@ -129,6 +140,18 @@ export default function App() {
 
   return (
     <Shell step={step} setStep={setStep}>
+      {plan?.status === "EXPIRED" && (
+        <p className="bg-red-700 px-4 py-2 text-center text-sm font-semibold text-white" role="alert">
+          Your Guard plan has ended, so Guard has stopped watching your cameras. Renew at guard.getboombiz.com → Plan; this
+          computer switches back on within a few minutes.
+        </p>
+      )}
+      {plan && (plan.status === "ACTIVE" || plan.status === "LEGACY") && plan.days_left !== null && plan.days_left <= 7 && (
+        <p className="bg-guard-500 px-4 py-2 text-center text-sm font-semibold text-guard-ink" role="status">
+          Your Guard plan needs renewing: protection pauses in {plan.days_left} day{plan.days_left === 1 ? "" : "s"}. Renew at
+          guard.getboombiz.com → Plan.
+        </p>
+      )}
       {personNeeded && <SignInBar person={person} onChange={refreshPerson} />}
       {step === "auto" && (
         <AutoSetup

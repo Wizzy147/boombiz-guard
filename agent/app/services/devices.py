@@ -340,12 +340,12 @@ class DeviceService:
                 active = s.scalars(select(Camera).where(Camera.guard_enabled.is_(True))).all()
                 limit = self.max_cameras()
                 if limit <= 0:
-                    raise LimitError("Guard is in demo mode. Choose a Guard package to protect cameras continuously.")
+                    raise LimitError("Guard isn't active on this computer. Activate or renew your Guard plan to protect cameras.")
                 if len(active) >= limit:
                     names = ", ".join(c.name or "a camera" for c in active)
                     raise LimitError(
-                        f"Your Guard package protects up to {limit} {'camera' if limit == 1 else 'cameras'}. "
-                        f"Turn one off first ({names})."
+                        f"Your Guard plan protects up to {limit} {'camera' if limit == 1 else 'cameras'}. "
+                        f"Turn one off first ({names}), or add cameras on the Plan page."
                     )
                 if cam.compatibility_status == Compatibility.INCOMPATIBLE.value:
                     raise GuardError("This camera failed the compatibility test, so Guard can't use it.")

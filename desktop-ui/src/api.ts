@@ -289,10 +289,13 @@ export interface DayHours {
 
 // ── Auto Setup (plug-and-play) ────────────────────────────────────────
 export interface LicenceInfo {
-  status: "ACTIVE" | "LEGACY" | "DEMO" | "REVOKED" | "GRANDFATHERED";
+  status: "ACTIVE" | "LEGACY" | "DEMO" | "EXPIRED" | "REVOKED" | "GRANDFATHERED";
   tier: string | null;
   name: string | null;
   ai_cameras: number;
+  valid_until: string | null;
+  days_left: number | null;
+  signed: boolean;
   limit: number;
   protects: boolean;
 }
