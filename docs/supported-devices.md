@@ -16,6 +16,7 @@ records what has actually been **verified**, and against what.
 | Manual RTSP address | ✅ | ⬜ |
 | V380 decision path (cloud-only → NOT compatible) | ✅ | ⬜ |
 | V380 with local RTSP enabled | ⬜ | ⬜ |
+| 4G / solar cameras via their phone app (V380 Pro, CamHi, UBox) — Android watcher only, see android-watcher.md | ✅ unit-tested | ⬜ |
 | XMEye recorders | ⬜ no adapter yet | ⬜ |
 | Automatic reconnect after a feed drops | ✅ | ⬜ |
 

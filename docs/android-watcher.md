@@ -47,6 +47,30 @@ RTSP sub-stream ─► Media3 ExoPlayer (RTP over TCP, hardware MediaCodec) ─�
   (Android hides whole-device CPU from apps); RAM and free storage are real.
 - **Retention**: incidents and snapshots on the device are kept 30 days.
 
+## 4G / solar cameras (camera-app alerts)
+
+The popular SIM-card solar PTZ cameras (V380 Pro, CamHi, UBox apps) can't be streamed: they sit behind the mobile
+network, send video only to their maker's cloud, and sleep on battery until their motion sensor wakes them. Non-stop
+streaming would also burn the SIM's data and flatten the battery.
+
+So Guard uses the alert the camera already sends: the installer puts the camera's own app on the Guard phone and links
+it in **4G / solar cameras** (`ui/CameraAppsActivity.kt`). `watch/AppAlertListener.kt` (a `NotificationListenerService`)
+reads only the linked apps' notifications — every other app is dropped unread — and `watch/AppAlerts.kt` decides what
+is an alarm (anything that isn't an advert, update or account notice, since alarm wording differs per app/language).
+
+- Shop **closed** → `APP_ALERT_AFTER_HOURS` → cloud type `AFTER_HOURS_INTRUSION` / CRITICAL, title "Movement after
+  hours", siren, WhatsApp. Same cloud contract, so **no Boombiz change or deploy**.
+- Shop **open** → nothing (these cameras wake for every customer). The status screen still shows "last alert".
+- Snapshot = the picture the app attaches to its notification, when it attaches one; never the app logo.
+- Dedup 60 s per app. No camera row: `camera_id` is null, `camera_name` is the name the installer typed.
+- Limits: the camera, not Guard's AI, decides what's a person; no alerts if the camera app is killed, the SIM is out
+  of data or the battery is flat. The setup screen says all of this.
+- Android watcher only — the Windows PC agent has no equivalent.
+
+**Before real shops:** test on a real unit of each app. Check that the alarm notification arrives on the Guard phone
+with the screen off, whether it carries a picture, and that no advert slips through as an alarm. Record the results in
+supported-devices.md; keep it off the Guard site until then.
+
 ## If the phone is stolen
 
 - **Unplugged alert** (`GUARD_DEVICE_UNPLUGGED`): charger pulled while the shop is closed → CRITICAL incident, 30 s

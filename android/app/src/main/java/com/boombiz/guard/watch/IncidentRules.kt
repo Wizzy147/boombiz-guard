@@ -12,6 +12,10 @@ object IncidentRules {
 
     val RULES = mapOf(
         "AFTER_HOURS_PERSON" to IncidentRule("AFTER_HOURS_INTRUSION", "CRITICAL", 60.0, "Person inside after hours", false),
+        // A 4G / solar camera's own app reported movement (AppAlerts). Same cloud type as a
+        // DVR camera, so alert rules and WhatsApp work unchanged; the title says it's movement,
+        // because the camera — not Guard's AI — decided there was a person.
+        AppAlerts.EVENT to IncidentRule("AFTER_HOURS_INTRUSION", "CRITICAL", 60.0, "Movement after hours", false),
         "RESTRICTED_ZONE_ENTRY" to IncidentRule("RESTRICTED_AREA_INCIDENT", "HIGH", 30.0, "Restricted area entered", true),
         "CAMERA_OFFLINE" to IncidentRule("CAMERA_OFFLINE", "HIGH", 1e9, "Camera stopped sending video", false),
         "CAMERA_TAMPERED" to IncidentRule("CAMERA_TAMPERED", "HIGH", 600.0, "Camera covered or turned away", false),

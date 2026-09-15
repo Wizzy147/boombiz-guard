@@ -11,6 +11,14 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
+    <!-- The camera-app picker lists launchable apps (V380 Pro, CamHi, UBox…). -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
+
     <!-- Android TV boxes have neither a touchscreen nor a camera: never required. -->
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
     <uses-feature android:name="android.software.leanback" android:required="false" />
@@ -40,6 +48,18 @@
         <activity android:name=".ui.ZoneEditorActivity" android:exported="false" />
         <activity android:name=".ui.HoursActivity" android:exported="false" />
         <activity android:name=".ui.IncidentsActivity" android:exported="false" />
+        <activity android:name=".ui.CameraAppsActivity" android:exported="false" />
+
+        <!-- 4G / solar cameras: reads ONLY the camera apps linked in Guard; everything else is dropped. -->
+        <service
+            android:name=".watch.AppAlertListener"
+            android:exported="true"
+            android:label="Boombiz Guard: camera app alerts"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
 
         <service
             android:name=".watch.WatchService"

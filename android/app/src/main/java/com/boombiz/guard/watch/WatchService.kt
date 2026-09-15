@@ -40,6 +40,7 @@ import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -92,7 +93,9 @@ class WatchService : Service() {
             addAction(Intent.ACTION_POWER_CONNECTED); addAction(Intent.ACTION_POWER_DISCONNECTED)
         })
         status.charging = chargingNow()
+        instance = this
         io.execute { boot() }
+        io.execute { guard("app alerts") { drainAppAlerts() } } // alerts that arrived while Guard was stopped
         io.scheduleWithFixedDelay({ guard("offline") { checkOffline() } }, 5, 5, TimeUnit.SECONDS)
         io.scheduleWithFixedDelay({ guard("sync") { sync.process(); status.syncError = sync.lastError } }, 10, 5, TimeUnit.SECONDS)
         io.scheduleWithFixedDelay({ guard("heartbeat") { heartbeat() } }, 15, 120, TimeUnit.SECONDS)
@@ -108,6 +111,7 @@ class WatchService : Service() {
 
     override fun onDestroy() {
         running = false
+        instance = null
         runCatching { unregisterReceiver(power) }
         sources.values.forEach { it.stop() }
         io.shutdownNow(); analysis.shutdownNow()
@@ -215,19 +219,39 @@ class WatchService : Service() {
         sync.process() // don't wait for the 5 s loop: the phone may be switched off in seconds
     }
 
+    // ── 4G / solar cameras: alarms from their own phone app ──────────
+    private fun drainAppAlerts() {
+        while (true) onAppAlert(pendingAlerts.poll() ?: return)
+    }
+
+    /** Only while the shop is closed: in the day these cameras wake for every customer. */
+    private fun onAppAlert(a: AppAlert) {
+        status.appAlertHeard[a.source.pkg] = a.at
+        val open = Schedule.isOpen(app.store.hours(), LocalDateTime.now())
+        if (open) return
+        onEvent(CameraWatcher.Event(AppAlerts.EVENT, AppAlerts.dedupId(a.source.pkg), null, AppAlerts.detail(a.source, a.title, a.text)),
+            null, open, picture = a.picture, cameraName = a.source.cameraName)
+        sync.process() // an intruder alert shouldn't wait for the 5 s loop
+    }
+
     // ── incidents ────────────────────────────────────────────────────
+    /** [picture]/[cameraName]: for cameras Guard doesn't stream itself (camera-app alerts). */
     @Synchronized
-    private fun onEvent(e: CameraWatcher.Event, frame: Frame?, storeOpen: Boolean) {
+    private fun onEvent(e: CameraWatcher.Event, frame: Frame?, storeOpen: Boolean, picture: Bitmap? = null, cameraName: String? = null) {
         val rule = IncidentRules.RULES[e.kind] ?: return
         if (!dedup.isNew(rule, e.cameraId, e.trackId, SystemClock.elapsedRealtime() / 1000.0)) return
         val id = UUID.randomUUID().toString()
         val day = LocalDate.now().format(DateTimeFormatter.BASIC_ISO_DATE)
         val ref = "BG-${app.store.get("location_code") ?: "LOC"}-$day-%06d".format(app.store.nextSeq(day))
         // An offline camera's last frame is stale — the snapshot would mislead.
-        val snap = if (e.kind != "CAMERA_OFFLINE") frame?.let { saveSnapshot(id, it) } else null
+        val snap = when {
+            picture != null -> saveBitmap(id, picture)
+            e.kind != "CAMERA_OFFLINE" -> frame?.let { saveSnapshot(id, it) }
+            else -> null
+        }
         val cam = cams[e.cameraId]
-        val camId = e.cameraId.takeIf { it != 0L } // 0 = about the device itself, not a camera
-        val inc = Incident(id, ref, rule.type, rule.severity, camId, cam?.name, rule.title,
+        val camId = e.cameraId.takeIf { it > 0L } // 0 = the device itself, below 0 = a camera app: no camera row
+        val inc = Incident(id, ref, rule.type, rule.severity, camId, cam?.name ?: cameraName, rule.title,
             e.detail, Instant.now().toString(), "UNREVIEWED", null, null, snap)
         app.store.insertIncident(inc)
         sync.enqueue(inc)
@@ -238,11 +262,14 @@ class WatchService : Service() {
         alertNotification(inc)
     }
 
-    private fun saveSnapshot(id: String, f: Frame): String? = runCatching {
+    private fun saveSnapshot(id: String, f: Frame): String? {
         val bmp = Bitmap.createBitmap(f.argb, f.width, f.height, Bitmap.Config.ARGB_8888)
+        return saveBitmap(id, bmp).also { bmp.recycle() }
+    }
+
+    private fun saveBitmap(id: String, bmp: Bitmap): String? = runCatching {
         val name = "$id.jpg"
         FileOutputStream(File(mediaDir, name)).use { bmp.compress(Bitmap.CompressFormat.JPEG, 85, it) }
-        bmp.recycle()
         name
     }.getOrNull()
 
@@ -294,7 +321,10 @@ class WatchService : Service() {
 
     private fun updateNotification() {
         val on = state.values.count { it == RtspFrameSource.State.ONLINE }
-        val text = status.problem ?: if (cams.isEmpty()) "No cameras set up yet." else "$on of ${cams.size} cameras working"
+        val apps = AppAlerts.decode(app.store.get(AppAlerts.KEY)).size
+        val appText = if (apps > 0) "$apps camera app${if (apps == 1) "" else "s"} linked" else null
+        val text = status.problem ?: listOfNotNull(if (cams.isEmpty()) null else "$on of ${cams.size} cameras working", appText)
+            .joinToString(" · ").ifEmpty { "No cameras set up yet." }
         getSystemService(NotificationManager::class.java).notify(NOTE_WATCH, watchNotification(text))
     }
 
@@ -317,7 +347,13 @@ class WatchService : Service() {
         val cameraErrors = ConcurrentHashMap<Long, String>()
         val peopleNow = ConcurrentHashMap<Long, Int>()
         val lastFrame = ConcurrentHashMap<Long, Frame>()
+        /** Camera app package → when Guard last heard an alarm from it (ms). */
+        val appAlertHeard = ConcurrentHashMap<String, Long>()
     }
+
+    /** An alarm from a linked camera app, handed over by [AppAlertListener]. */
+    class AppAlert(val source: AppAlerts.Source, val title: String?, val text: String?, val picture: Bitmap?,
+                   val at: Long = System.currentTimeMillis())
 
     companion object {
         private const val TAG = "GuardWatch"
@@ -331,11 +367,23 @@ class WatchService : Service() {
         val status = Status()
         @Volatile var running = false
             private set
+        @Volatile private var instance: WatchService? = null
+        private val pendingAlerts = ConcurrentLinkedQueue<AppAlert>()
 
         fun startIfConfigured(ctx: Context) {
             val app = ctx.applicationContext as GuardApp
-            if (app.store.cameras().none { it.enabled }) return
+            if (app.store.cameras().none { it.enabled } && AppAlerts.decode(app.store.get(AppAlerts.KEY)).isEmpty()) return
             ctx.startForegroundService(Intent(ctx, WatchService::class.java))
+        }
+
+        /** From the notification listener (main thread): queue it, and wake the watcher if Android stopped it. */
+        fun appAlert(ctx: Context, a: AppAlert) {
+            pendingAlerts += a
+            while (pendingAlerts.size > 20) pendingAlerts.poll() // never a backlog of stale alarms
+            val s = instance
+            if (s != null) s.io.execute { s.guard("app alert") { s.drainAppAlerts() } }
+            else runCatching { ctx.startForegroundService(Intent(ctx, WatchService::class.java)) }
+                .onFailure { Log.w(TAG, "couldn't start the watcher for a camera-app alert", it) }
         }
 
         fun reload(ctx: Context) {

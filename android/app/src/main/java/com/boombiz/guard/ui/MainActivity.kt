@@ -17,6 +17,8 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.media3.common.util.UnstableApi
 import com.boombiz.guard.GuardApp
+import com.boombiz.guard.watch.AppAlertListener
+import com.boombiz.guard.watch.AppAlerts
 import com.boombiz.guard.watch.WatchService
 import com.boombiz.guard.watch.Watchdog
 import kotlin.concurrent.thread
@@ -79,6 +81,10 @@ class MainActivity : Activity() {
         if (cams.size < WatchService.MAX_CAMERAS) p.button("Add a camera") {
             PinLock.guard(this) { startActivity(Intent(this, CameraEditActivity::class.java)) }
         }
+        val appCams = AppAlerts.decode(app.store.get(AppAlerts.KEY))
+        p.button(if (appCams.isEmpty()) "4G / solar camera (V380, CamHi, UBox)" else "4G / solar cameras: ${appCams.size} linked", primary = false) {
+            PinLock.guard(this) { startActivity(Intent(this, CameraAppsActivity::class.java)) }
+        }
 
         p.heading("3. Opening hours")
         val hours = app.store.hours()
@@ -127,9 +133,11 @@ class MainActivity : Activity() {
     private fun renderStatus() {
         val s = WatchService.status
         val cams = app.store.cameras().filter { it.enabled }
+        val appCams = AppAlerts.decode(app.store.get(AppAlerts.KEY))
         val lines = mutableListOf<String>()
         lines += when {
             s.problem != null -> "⚠ ${s.problem}"
+            cams.isEmpty() && appCams.isNotEmpty() -> if (WatchService.running) "Listening for camera app alerts" else "Starting…"
             cams.isEmpty() -> "Not watching yet — add a camera."
             !WatchService.running -> "Starting…"
             else -> "Watching ${cams.size} camera${if (cams.size == 1) "" else "s"} · AI ${"%.1f".format(s.aiFps)} checks/s"
@@ -142,6 +150,9 @@ class MainActivity : Activity() {
                 else -> err
             }
         }
+        for (a in appCams) lines += "• ${a.cameraName} (${a.label} app): " +
+            if (!AppAlertListener.granted(this)) "Guard isn't allowed to read its alerts — open 4G / solar cameras"
+            else s.appAlertHeard[a.pkg]?.let { "last alert ${android.text.format.DateFormat.getTimeFormat(this).format(java.util.Date(it))}" } ?: "listening"
         if (s.charging == false) lines += "⚠ Not charging — plug this phone in and leave it plugged in."
         if (app.cloud.isActivated) lines += when (s.cloudOk) {
             true -> "Boombiz cloud: connected"

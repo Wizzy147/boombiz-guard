@@ -15,6 +15,7 @@ import com.boombiz.guard.ai.contains
 import com.boombiz.guard.camera.StreamUrls
 import com.boombiz.guard.cloud.CameraHealth
 import com.boombiz.guard.cloud.HeartbeatReport
+import com.boombiz.guard.watch.AppAlerts
 import com.boombiz.guard.watch.CameraWatcher
 import com.boombiz.guard.watch.IncidentRules
 import org.junit.Assert.assertEquals
@@ -157,6 +158,41 @@ class LogicTest {
         assertTrue(d.isNew(off, 1, null, 0.0)); assertFalse(d.isNew(off, 1, null, 9999.0))
         d.clear("CAMERA_OFFLINE", 1)
         assertTrue(d.isNew(off, 1, null, 10000.0))
+    }
+
+    // ── 4G / solar cameras: alerts from their own phone app ─────────
+    @Test fun cameraAppAlarmsCountButAdvertsAndAccountNoticesDont() {
+        assertEquals(AppAlerts.Kind.ALARM, AppAlerts.classify("Front gate", "Human detected"))
+        assertEquals(AppAlerts.Kind.ALARM, AppAlerts.classify("V380 Pro", "Motion detection alarm"))
+        assertEquals(AppAlerts.Kind.ALARM, AppAlerts.classify("摄像机", "检测到人形")) // unknown wording still alerts
+        assertEquals(AppAlerts.Kind.IGNORE, AppAlerts.classify("CamHi", "A new version is available, update now"))
+        assertEquals(AppAlerts.Kind.IGNORE, AppAlerts.classify("UBox", "Cloud storage 50% OFF — subscribe today"))
+        assertEquals(AppAlerts.Kind.IGNORE, AppAlerts.classify("V380 Pro", "Your account logged in on another phone"))
+        assertEquals(AppAlerts.Kind.IGNORE, AppAlerts.classify(null, "  "))
+    }
+
+    @Test fun cameraAppAlertIsAnAfterHoursIncidentWithNoCameraRow() {
+        val rule = IncidentRules.RULES[AppAlerts.EVENT]!!
+        assertEquals("AFTER_HOURS_INTRUSION" to "CRITICAL", rule.type to rule.severity)
+        val id = AppAlerts.dedupId("com.macrovideo.v380pro")
+        assertTrue(id < 0)
+        assertEquals(id, AppAlerts.dedupId("com.macrovideo.v380pro"))
+        val d = IncidentRules.Dedup()
+        assertTrue(d.isNew(rule, id, null, 0.0))
+        assertFalse(d.isNew(rule, id, null, 30.0))           // the camera re-alerting is the same incident
+        assertTrue(d.isNew(rule, AppAlerts.dedupId("com.hichip.campro"), null, 30.0)) // another camera app
+    }
+
+    @Test fun linkedCameraAppsRoundTrip() {
+        val list = listOf(AppAlerts.Source("com.macrovideo.v380pro", "V380 Pro", "Front gate"),
+            AppAlerts.Source("com.hichip.campro", "CamHipro", "Back yard"))
+        assertEquals(list, AppAlerts.decode(AppAlerts.encode(list)))
+        assertTrue(AppAlerts.decode(null).isEmpty())
+        assertTrue(AppAlerts.decode("not json").isEmpty())
+        assertTrue(AppAlerts.looksLikeCameraApp("V380 Pro", "com.macrovideo.v380pro"))
+        assertFalse(AppAlerts.looksLikeCameraApp("WhatsApp", "com.whatsapp"))
+        val detail = AppAlerts.detail(list[0], "Front gate", "Human detected")
+        assertEquals("The V380 Pro app reported: Front gate — Human detected. Movement while the shop is closed.", detail)
     }
 
     // ── privacy: the heartbeat never carries addresses or passwords ─
