@@ -13,6 +13,7 @@ When each is approved, set its name in Amplify (merge — never replace the env 
 | `BOOMBIZ_GUARD_WA_TEMPLATE_FIRE` | `guard_fire_alert` |
 | `BOOMBIZ_GUARD_WA_TEMPLATE_OFFLINE` | `guard_device_offline` |
 | `BOOMBIZ_GUARD_WA_TEMPLATE_RESTORED` | `guard_protection_restored` |
+| `BOOMBIZ_GUARD_WA_TEMPLATE_RENEWAL` | `guard_plan_renewal` |
 
 Until a template is set, that alert goes by email only and the incident page says "WhatsApp alerts start once
 Meta approves the Guard message templates". Variable order below is exactly what the code sends — don't reorder.
@@ -81,6 +82,27 @@ Guard is watching your cameras again. Open Guard to check everything is working.
 Samples: `{{1}}` Aba Branch · `{{2}}` 2 of 2 cameras online.
 
 **Button** — static URL `https://guard.getboombiz.com/dashboard/locations` · text **Open Guard**
+
+## 5. `guard_plan_renewal`  (Utility)
+
+Sent by the daily renewal reminders (web `lib/guard/renewal.ts`): 7, 3 and 1 day before the plan period ends,
+when protection pauses, then every 3 days for 2 weeks. Until it's approved, reminders go by email and phone push.
+
+**Body**
+```
+Boombiz Guard: your plan for {{1}} {{2}}.
+
+Renewal: {{3}}.
+
+Tap Renew to pay by card, transfer or USSD. No sign-in needed.
+```
+Samples: `{{1}}` Mama Nkechi Supermarket · `{{2}}` ends on 22 September · `{{3}}` ₦10,000 for 1 month
+(`{{2}}` is also sent as "ends tomorrow, 22 September" or "has ended, so Guard has stopped protecting your shop".)
+
+**Button** — Visit website, dynamic URL: `https://guard.getboombiz.com/renew?t={{1}}` · text **Renew**
+(sample: `https://guard.getboombiz.com/renew?t=g1.cmf0abc123.1789574014000.Xk3v9Qp2LmN8rT5wY7zA1bC4dE6fG0hJ`)
+
+Keep it Utility, not Marketing: it's about the customer's own subscription, and the body carries no offer.
 
 ---
 
