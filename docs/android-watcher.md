@@ -14,12 +14,13 @@ activation codes, heartbeats, incident sync, media bucket, alert rules and Whats
 | Cameras | 2 (sub-stream, ~5 AI checks/s each) | more, by PC benchmark |
 | Person after hours (CRITICAL) | yes — anyone in view ≥ 2 s, shop closed | yes |
 | Restricted area (HIGH) | yes — box zones, feet inside | yes — polygons |
+| Shelf reach-in + shelf changed → possible unpaid exit / product swap | yes — box zones (shelf, exit, cashier) | yes |
 | Ignore zones | yes | yes (+ privacy masking) |
 | Camera offline 30 s / covered / turned (HIGH) | yes | yes |
-| Local alarm | device alarm sound (full volume, alarm stream) | PC beep + CCTV siren + relays |
+| Local alarm | device alarm sound (full volume, alarm stream) + the camera's own speaker (ONVIF back-channel, opt-in per camera) | PC beep + CCTV siren + relays |
 | Snapshot to cloud | yes | yes |
 | Clip to cloud | **no** (no rolling video buffer yet) | HIGH/CRITICAL |
-| Shelf swap, unpaid exit, concealment, fire | **no** | yes |
+| Concealment (pose model), fire | **no** | yes |
 | Remote acknowledge | yes (heartbeat command) | yes |
 | Watcher unplugged | phone: CRITICAL + 30 s siren after hours, LOW notice when open (TV box: no battery, can't tell) | — |
 | Settings PIN | yes | local sign-in |
@@ -46,6 +47,30 @@ RTSP sub-stream ─► Media3 ExoPlayer (RTP over TCP, hardware MediaCodec) ─�
 - **Heartbeat**: never carries addresses, URLs, usernames or passwords (unit-tested). CPU is sent as null
   (Android hides whole-device CPU from apps); RAM and free storage are real.
 - **Retention**: incidents and snapshots on the device are kept 30 days.
+
+## Daytime theft (shelf → exit)
+
+Port of the PC's `interactions/shelf.py` + `events/correlator.py`: `ai/Shelf.kt` (pure Kotlin on a 320-wide grey copy,
+no OpenCV) and `watch/TheftCorrelator.kt`. The installer draws **Shelf**, **Exit** and **Cashier** boxes in Areas.
+
+- A nearly-still person's arm reaches into a shelf with hand motion ≥ 500 ms → interaction. When they step away and
+  the view settles (1 s), the shelf is compared with its clean "before" picture: TAKEN / REPLACED / ADDED.
+- Their feet then enter an Exit zone within 5 min → `POSSIBLE_UNPAID_EXIT`. Confidence: strong change + no cashier
+  HIGH; strong + cashier or weak + no cashier MEDIUM; weak + cashier or shelf blocked LOW. LOW → LOW incident.
+- REPLACED → `POSSIBLE_PRODUCT_REPLACEMENT` at once. Siren 3 s (exit: no cooldown; swap: 30 s), snapshot = the
+  moment of the alert (the person at the door), confidence synced to the cloud. Same cloud types as the PC.
+- The camera moved, the light changed or the scene changed → closes without an alert. Camera shift is a ±4 px
+  block search on a 96×54 copy; a near-tie (< 3 % better than no shift) counts as no move.
+- Not on the phone: concealment (needs the pose model). Only runs on cameras with shelf zones. Never "theft".
+- Unit-tested on synthetic frames only; thresholds are the PC's pilot defaults. Test in a real shop before selling it.
+
+## Camera speaker siren
+
+`camera/CameraSpeaker.kt`: RTSP `DESCRIBE` with `Require: www.onvif.org/ver20/backchannel`, `SETUP` the `a=sendonly`
+PCMU/PCMA track over TCP-interleaved, `PLAY`, then a 700/1300 Hz wail as G.711 RTP every 20 ms. Basic + Digest login.
+Opt-in per camera ("Also sound the siren through this camera's speaker"), with a 3-second test on the camera screen
+that says in plain words when the camera doesn't accept outside audio (common on V380 / cheap app cameras). It plays
+whenever the phone's siren does, and stops with it (acknowledge / Stop siren). Failures show on the home screen.
 
 ## 4G / solar cameras (camera-app alerts)
 

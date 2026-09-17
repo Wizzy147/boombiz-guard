@@ -18,6 +18,7 @@ import android.widget.TextView
 import androidx.media3.common.util.UnstableApi
 import com.boombiz.guard.GuardApp
 import com.boombiz.guard.ai.Frame
+import com.boombiz.guard.camera.CameraSpeaker
 import com.boombiz.guard.camera.RtspFrameSource
 import com.boombiz.guard.camera.StreamUrls
 import com.boombiz.guard.data.Camera
@@ -44,6 +45,9 @@ class CameraEditActivity : Activity() {
     private lateinit var user: EditText
     private lateinit var pass: EditText
     private lateinit var enabled: CheckBox
+    private lateinit var speaker: CheckBox
+    private lateinit var speakerResult: TextView
+    private var speakerTest: CameraSpeaker? = null
     private lateinit var result: TextView
     private lateinit var preview: ImageView
 
@@ -54,38 +58,74 @@ class CameraEditActivity : Activity() {
         val p = page(if (c == null) "Add a camera" else "Edit camera")
 
         name = p.field("Name (what the shop calls it)", c?.name ?: "", hint = "Entrance")
-        p.text("Recorder brand", 14f, bold = true, color = C.MUTED)
+        p.text("Recorder or camera brand", 14f, bold = true, color = C.MUTED)
         brand = Spinner(this).apply {
             adapter = ArrayAdapter(this@CameraEditActivity, android.R.layout.simple_spinner_dropdown_item,
-                listOf("Hikvision", "Dahua", "Other (type the RTSP path)"))
+                StreamUrls.BRAND_LIST.map { it.label })
             setSelection(StreamUrls.BRANDS.indexOf(c?.brand ?: "HIKVISION").coerceAtLeast(0))
         }
         p.addView(brand)
+        val login = p.text("", 14f, color = C.MUTED)
+        brand.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: android.widget.AdapterView<*>?, v: android.view.View?, pos: Int, id: Long) {
+                login.text = "Login: ${StreamUrls.BRAND_LIST[pos].login}"
+            }
+            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) = Unit
+        }
         host = p.field("Recorder or camera IP address", c?.host ?: "", InputType.TYPE_CLASS_PHONE, "192.168.1.64")
         port = p.field("RTSP port", (c?.rtspPort ?: 554).toString(), InputType.TYPE_CLASS_NUMBER)
-        channel = p.field("Channel (camera number on the recorder)", (c?.channel ?: 1).toString(), InputType.TYPE_CLASS_NUMBER)
+        channel = p.field("Channel (camera number on the recorder, or lens number; usually 1)", (c?.channel ?: 1).toString(), InputType.TYPE_CLASS_NUMBER)
         path = p.field("RTSP path (Other only)", c?.customPath ?: "", hint = "/live/ch00_1")
-        user = p.field("Recorder username", c?.username ?: "admin")
-        pass = p.field("Recorder password", "", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD,
+        user = p.field("Username", c?.username ?: "admin")
+        pass = p.field("Password", "", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD,
             if (c?.passwordSealed != null) "Saved — leave blank to keep it" else null)
         enabled = CheckBox(this).apply { text = "Guard watches this camera"; isChecked = c?.enabled ?: true; setTextColor(C.INK) }
         p.addView(enabled)
+        speaker = CheckBox(this).apply {
+            text = "Also sound the siren through this camera's speaker"; isChecked = c?.speaker ?: false; setTextColor(C.INK)
+        }
+        p.addView(speaker)
 
         p.button("Test — show me this camera", primary = false) { test() }
         result = p.text("", 15f)
         preview = ImageView(this).apply { adjustViewBounds = true }
         p.addView(preview, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+        p.button("Test the camera's speaker (plays the siren for 3 seconds)", primary = false) { testSpeaker() }
+        speakerResult = p.text("", 15f)
 
         p.button("Save") { save() }
         if (c != null) {
-            p.button("Areas: restricted and ignore zones", primary = false) {
+            p.button("Areas: shelves, exit, cashier, restricted, ignore", primary = false) {
                 startActivity(Intent(this, ZoneEditorActivity::class.java).putExtra("id", c.id))
             }
             p.button("Remove this camera", primary = false) { remove(c) }
         }
     }
 
-    override fun onDestroy() { tester?.stop(); super.onDestroy() }
+    override fun onDestroy() { tester?.stop(); speakerTest?.stop(); super.onDestroy() }
+
+    private fun testSpeaker() {
+        validate()?.let { speakerResult.text = it; speakerResult.setTextColor(C.RED); return }
+        if (speakerTest != null) return
+        speakerResult.text = "Sending the siren to the camera…"; speakerResult.setTextColor(C.INK)
+        val s = CameraSpeaker(host.text.toString().trim(), port.text.toString().toInt(),
+            StreamUrls.path(brandKey(), channel.text.toString().toInt(), path.text.toString(), user.text.toString(), password()),
+            user.text.toString(), password())
+        speakerTest = s
+        Thread {
+            val outcome = runCatching { s.play(3) }
+            ui.post {
+                speakerTest = null
+                outcome.onSuccess {
+                    speakerResult.text = "The camera accepted the siren. Did you hear it from the camera? If yes, tick “Also sound the siren through this camera's speaker” and Save."
+                    speakerResult.setTextColor(C.GREEN)
+                }.onFailure {
+                    speakerResult.text = it.message ?: "Couldn't play sound on this camera."
+                    speakerResult.setTextColor(C.RED)
+                }
+            }
+        }.start()
+    }
 
     private fun brandKey() = StreamUrls.BRANDS[brand.selectedItemPosition]
 
@@ -140,7 +180,7 @@ class CameraEditActivity : Activity() {
         val sealed = pass.text.toString().ifEmpty { null }?.let { Vault.seal(it) } ?: existing?.passwordSealed
         app.store.saveCamera(Camera(existing?.id ?: 0L, name.text.toString().trim().take(60), brandKey(), host.text.toString().trim(),
             port.text.toString().toInt(), channel.text.toString().toInt(), path.text.toString().trim().ifEmpty { null },
-            user.text.toString().trim(), sealed, enabled.isChecked))
+            user.text.toString().trim(), sealed, enabled.isChecked, speaker.isChecked))
         WatchService.reload(this)
         finish()
     }

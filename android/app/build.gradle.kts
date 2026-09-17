@@ -11,8 +11,8 @@ android {
         applicationId = "com.boombiz.guard"
         minSdk = 26          // Android 8: foreground-service + Keystore AES-GCM baseline
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.2.0"
         buildConfigField("String", "CLOUD_URL", "\"https://guard.getboombiz.com\"")
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
     }

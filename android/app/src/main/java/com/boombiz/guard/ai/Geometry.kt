@@ -12,7 +12,25 @@ data class BBox(val x1: Float, val y1: Float, val x2: Float, val y2: Float) {
 
     /** Where the person stands, not where their head is. */
     fun foot(frac: Float = 0.9f) = Pt((x1 + x2) / 2f, y1 + h * frac)
+
+    /** Top ~55 % of the body, widened — where arms reach a shelf from. */
+    fun upperBody(): BBox {
+        val pad = w * 0.25f
+        return BBox(maxOf(0f, x1 - pad), y1, minOf(1f, x2 + pad), y1 + h * 0.55f)
+    }
 }
+
+/** Share of a box's 6×6 sample grid inside a polygon (cheap overlap, PC geometry.py). */
+fun overlap(box: BBox, poly: List<Pt>, samples: Int = 6): Float {
+    var hit = 0
+    for (i in 0 until samples) for (j in 0 until samples) {
+        if (contains(poly, Pt(box.x1 + box.w * (i + 0.5f) / samples, box.y1 + box.h * (j + 0.5f) / samples))) hit++
+    }
+    return hit.toFloat() / (samples * samples)
+}
+
+/** How much of a person's arm reach overlaps a shelf. */
+fun reachOverlap(box: BBox, shelf: List<Pt>) = overlap(box.upperBody(), shelf)
 
 fun iou(a: BBox, b: BBox): Float {
     val ix = maxOf(0f, minOf(a.x2, b.x2) - maxOf(a.x1, b.x1))
@@ -48,7 +66,20 @@ fun area(poly: List<Pt>): Float {
     return s / 2f
 }
 
-enum class ZoneType { RESTRICTED, IGNORE }
+/**
+ *   RESTRICTED  anyone stepping in (feet inside) alerts, day or night
+ *   IGNORE      people standing here are never counted
+ *   SHELF       products: a hand reaching in and the shelf changing is watched
+ *   EXIT        the shop door: leaving with an unchecked shelf change alerts
+ *   CASHIER     the pay point: passing it lowers the confidence of an exit alert
+ */
+enum class ZoneType(val label: String, val defaultName: String) {
+    RESTRICTED("restricted", "Restricted area"),
+    IGNORE("ignore", "Ignored area"),
+    SHELF("shelf", "Shelf"),
+    EXIT("exit", "Exit"),
+    CASHIER("cashier", "Cashier"),
+}
 
 data class Zone(val id: Long, val cameraId: Long, val name: String, val type: ZoneType, val polygon: List<Pt>) {
     fun encode(): String = polygon.joinToString(";") { "${it.x},${it.y}" }

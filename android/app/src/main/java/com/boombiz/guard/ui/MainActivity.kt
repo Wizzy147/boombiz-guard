@@ -148,7 +148,7 @@ class MainActivity : Activity() {
                 err == null -> "connecting…"
                 err.isEmpty() -> "working" + (s.peopleNow[c.id]?.takeIf { it > 0 }?.let { " · $it in view" } ?: "")
                 else -> err
-            }
+            } + (s.speakerErrors[c.id]?.let { " · camera speaker: $it" } ?: "")
         }
         for (a in appCams) lines += "• ${a.cameraName} (${a.label} app): " +
             if (!AppAlertListener.granted(this)) "Guard isn't allowed to read its alerts — open 4G / solar cameras"

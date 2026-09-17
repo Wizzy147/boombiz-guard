@@ -13,18 +13,22 @@ import java.time.DayOfWeek
 data class Camera(
     val id: Long, val name: String, val brand: String, val host: String, val rtspPort: Int,
     val channel: Int, val customPath: String?, val username: String, val passwordSealed: String?, val enabled: Boolean,
+    /** Also play the siren through this camera's own speaker (ONVIF audio back-channel). */
+    val speaker: Boolean = false,
 )
 
 data class Incident(
     val id: String, val ref: String, val type: String, val severity: String, val cameraId: Long?,
     val cameraName: String?, val title: String, val description: String?, val occurredAt: String,
     val status: String, val acknowledgedBy: String?, val acknowledgedAt: String?, val snapshotPath: String?,
+    /** LOW | MEDIUM | HIGH for theft signals; null for everything else. */
+    val confidence: String? = null,
 )
 
 data class SyncJob(val id: Long, val op: String, val incidentId: String, val attempts: Int)
 
 /** The phone's local database. Plain SQLite: small schema, no annotation processors to build. */
-class Store(ctx: Context) : SQLiteOpenHelper(ctx, "guard.db", null, 1) {
+class Store(ctx: Context) : SQLiteOpenHelper(ctx, "guard.db", null, 2) {
 
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT)")
@@ -41,9 +45,15 @@ class Store(ctx: Context) : SQLiteOpenHelper(ctx, "guard.db", null, 1) {
         db.execSQL("""CREATE TABLE sync_jobs (id INTEGER PRIMARY KEY AUTOINCREMENT, op TEXT NOT NULL, incident_id TEXT NOT NULL,
             priority INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'PENDING', attempts INTEGER NOT NULL DEFAULT 0,
             next_at_ms INTEGER NOT NULL DEFAULT 0, last_error TEXT, cloud_id TEXT, UNIQUE(op, incident_id))""")
+        onUpgrade(db, 1, 2)
     }
 
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        if (oldVersion < 2) {
+            db.execSQL("ALTER TABLE incidents ADD COLUMN confidence TEXT")
+            db.execSQL("ALTER TABLE cameras ADD COLUMN speaker INTEGER NOT NULL DEFAULT 0")
+        }
+    }
 
     // ── settings ─────────────────────────────────────────────────────
     fun get(key: String): String? = readableDatabase.rawQuery("SELECT value FROM settings WHERE key=?", arrayOf(key))
@@ -57,10 +67,10 @@ class Store(ctx: Context) : SQLiteOpenHelper(ctx, "guard.db", null, 1) {
 
     // ── cameras ──────────────────────────────────────────────────────
     private fun Cursor.camera() = Camera(getLong(0), getString(1), getString(2), getString(3), getInt(4), getInt(5),
-        getString(6), getString(7), getString(8), getInt(9) == 1)
+        getString(6), getString(7), getString(8), getInt(9) == 1, getInt(10) == 1)
 
     fun cameras(): List<Camera> = readableDatabase.rawQuery(
-        "SELECT id,name,brand,host,rtsp_port,channel,custom_path,username,password_sealed,enabled FROM cameras ORDER BY id", null
+        "SELECT id,name,brand,host,rtsp_port,channel,custom_path,username,password_sealed,enabled,speaker FROM cameras ORDER BY id", null
     ).use { c -> buildList { while (c.moveToNext()) add(c.camera()) } }
 
     fun camera(id: Long): Camera? = cameras().firstOrNull { it.id == id }
@@ -69,7 +79,7 @@ class Store(ctx: Context) : SQLiteOpenHelper(ctx, "guard.db", null, 1) {
         val v = ContentValues().apply {
             put("name", c.name); put("brand", c.brand); put("host", c.host); put("rtsp_port", c.rtspPort)
             put("channel", c.channel); put("custom_path", c.customPath); put("username", c.username)
-            put("password_sealed", c.passwordSealed); put("enabled", if (c.enabled) 1 else 0)
+            put("password_sealed", c.passwordSealed); put("enabled", if (c.enabled) 1 else 0); put("speaker", if (c.speaker) 1 else 0)
         }
         return if (c.id == 0L) writableDatabase.insert("cameras", null, v)
         else { writableDatabase.update("cameras", v, "id=?", arrayOf(c.id.toString())); c.id }
@@ -110,9 +120,9 @@ class Store(ctx: Context) : SQLiteOpenHelper(ctx, "guard.db", null, 1) {
     // ── incidents ────────────────────────────────────────────────────
     private fun Cursor.incident() = Incident(getString(0), getString(1), getString(2), getString(3),
         if (isNull(4)) null else getLong(4), getString(5), getString(6), getString(7), getString(8), getString(9),
-        getString(10), getString(11), getString(12))
+        getString(10), getString(11), getString(12), getString(13))
 
-    private val incCols = "id,ref,type,severity,camera_id,camera_name,title,description,occurred_at,status,acknowledged_by,acknowledged_at,snapshot_path"
+    private val incCols = "id,ref,type,severity,camera_id,camera_name,title,description,occurred_at,status,acknowledged_by,acknowledged_at,snapshot_path,confidence"
 
     fun incidents(limit: Int = 100): List<Incident> = readableDatabase.rawQuery(
         "SELECT $incCols FROM incidents ORDER BY created_ms DESC LIMIT $limit", null
@@ -124,7 +134,7 @@ class Store(ctx: Context) : SQLiteOpenHelper(ctx, "guard.db", null, 1) {
     fun insertIncident(i: Incident) = writableDatabase.insert("incidents", null, ContentValues().apply {
         put("id", i.id); put("ref", i.ref); put("type", i.type); put("severity", i.severity); put("camera_id", i.cameraId)
         put("camera_name", i.cameraName); put("title", i.title); put("description", i.description)
-        put("occurred_at", i.occurredAt); put("status", i.status); put("snapshot_path", i.snapshotPath)
+        put("occurred_at", i.occurredAt); put("status", i.status); put("snapshot_path", i.snapshotPath); put("confidence", i.confidence)
         put("created_ms", System.currentTimeMillis())
     })
 

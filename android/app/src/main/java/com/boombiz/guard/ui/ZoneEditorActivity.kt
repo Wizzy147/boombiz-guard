@@ -22,6 +22,9 @@ import com.boombiz.guard.watch.WatchService
 
 /**
  * Draw areas on the camera's picture by dragging a box:
+ *   Shelf      — products: a hand reaching in and the shelf changing is watched
+ *   Exit       — the door: leaving after a shelf change sounds the alarm
+ *   Cashier    — the pay point: passing it means the person may have paid
  *   Restricted — anyone stepping in (feet inside) sounds the alarm, day or night
  *   Ignore     — people standing here are never counted (a TV screen, a mirror, the pavement)
  * Needs a touchscreen; on a TV box, draw zones from a phone before moving the setup.
@@ -38,6 +41,9 @@ class ZoneEditorActivity : Activity() {
         val cam = app.store.camera(cameraId) ?: return finish()
         val p = page("Areas · ${cam.name}")
         p.text("Drag a box over the area on the picture, then choose what it is.", color = C.MUTED)
+        p.text("To catch theft in the day, draw each shelf of products, the exit door and the cashier. " +
+            "Guard alerts when someone reaches into a shelf, the shelf looks different afterwards, and they head for the exit. " +
+            "It can't tell which product, and works best when the camera looks straight at the shelf.", 14f, color = C.MUTED)
         val frame = WatchService.status.lastFrame[cameraId]
         if (frame == null) {
             p.text("No picture from this camera yet. Save the camera, wait until it says “working” on the home screen, then come back.", color = C.RED)
@@ -48,7 +54,7 @@ class ZoneEditorActivity : Activity() {
         p.addView(canvas, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
             (resources.displayMetrics.widthPixels - dp(40)) * frame.height / frame.width))
         for (z in app.store.zones(cameraId)) {
-            p.button("Remove “${z.name}” (${if (z.type == ZoneType.RESTRICTED) "restricted" else "ignore"})", primary = false) {
+            p.button("Remove “${z.name}” (${z.type.label})", primary = false) {
                 app.store.deleteZone(z.id); WatchService.reload(this); recreate()
             }
         }
@@ -56,16 +62,29 @@ class ZoneEditorActivity : Activity() {
 
     private fun ask(a: Pt, b: Pt) {
         val poly = Zone.rect(a, b) ?: return
-        val name = EditText(this).apply { hint = "Name, like Stockroom door"; setTextColor(C.INK) }
-        AlertDialog.Builder(this).setTitle("What is this area?").setView(name)
-            .setPositiveButton("Restricted") { _, _ -> save(name.text.toString(), ZoneType.RESTRICTED, poly) }
-            .setNeutralButton("Ignore") { _, _ -> save(name.text.toString(), ZoneType.IGNORE, poly) }
+        val types = listOf(
+            ZoneType.SHELF to "Shelf of products",
+            ZoneType.EXIT to "Exit door",
+            ZoneType.CASHIER to "Cashier / pay point",
+            ZoneType.RESTRICTED to "Restricted (staff only)",
+            ZoneType.IGNORE to "Ignore (TV, mirror, street)",
+        )
+        AlertDialog.Builder(this).setTitle("What is this area?")
+            .setItems(types.map { it.second }.toTypedArray()) { _, i -> askName(types[i].first, poly) }
+            .setOnCancelListener { canvas.clearDraft() }
+            .show()
+    }
+
+    private fun askName(type: ZoneType, poly: List<Pt>) {
+        val name = EditText(this).apply { hint = "Name, like ${type.defaultName} 1"; setTextColor(C.INK) }
+        AlertDialog.Builder(this).setTitle("Name this ${type.label} area").setView(name)
+            .setPositiveButton("Save") { _, _ -> save(name.text.toString(), type, poly) }
             .setNegativeButton("Cancel") { _, _ -> canvas.clearDraft() }
             .show()
     }
 
     private fun save(n: String, type: ZoneType, poly: List<Pt>) {
-        app.store.addZone(Zone(0, cameraId, n.trim().ifEmpty { if (type == ZoneType.RESTRICTED) "Restricted area" else "Ignored area" }.take(60), type, poly))
+        app.store.addZone(Zone(0, cameraId, n.trim().ifEmpty { type.defaultName }.take(60), type, poly))
         WatchService.reload(this)
         recreate()
     }
@@ -73,8 +92,10 @@ class ZoneEditorActivity : Activity() {
     class ZoneCanvas(ctx: Context, private val bmp: Bitmap, private val zones: List<Zone>, private val done: (Pt, Pt) -> Unit) : View(ctx) {
         private var start: Pt? = null
         private var end: Pt? = null
-        private val fillR = Paint().apply { color = 0x55DC2626; style = Paint.Style.FILL }
-        private val fillI = Paint().apply { color = 0x55334155; style = Paint.Style.FILL }
+        private val fills = mapOf(
+            ZoneType.RESTRICTED to 0x55DC2626, ZoneType.IGNORE to 0x55334155, ZoneType.SHELF to 0x552563EB,
+            ZoneType.EXIT to 0x55F59E0B, ZoneType.CASHIER to 0x5516A34A,
+        ).mapValues { (_, c) -> Paint().apply { color = c; style = Paint.Style.FILL } }
         private val stroke = Paint().apply { color = Color.YELLOW; style = Paint.Style.STROKE; strokeWidth = 5f }
 
         fun clearDraft() { start = null; end = null; invalidate() }
@@ -87,7 +108,7 @@ class ZoneEditorActivity : Activity() {
             c.drawBitmap(bmp, null, RectF(0f, 0f, width.toFloat(), height.toFloat()), null)
             for (z in zones) {
                 val xs = z.polygon.map { it.x }; val ys = z.polygon.map { it.y }
-                c.drawRect(rect(Pt(xs.min(), ys.min()), Pt(xs.max(), ys.max())), if (z.type == ZoneType.RESTRICTED) fillR else fillI)
+                c.drawRect(rect(Pt(xs.min(), ys.min()), Pt(xs.max(), ys.max())), fills.getValue(z.type))
             }
             val s = start; val e = end
             if (s != null && e != null) c.drawRect(rect(s, e), stroke)

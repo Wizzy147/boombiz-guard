@@ -23,6 +23,7 @@ import com.boombiz.guard.GuardApp
 import com.boombiz.guard.ai.Frame
 import com.boombiz.guard.ai.PersonDetector
 import com.boombiz.guard.ai.Schedule
+import com.boombiz.guard.camera.CameraSpeaker
 import com.boombiz.guard.camera.RtspFrameSource
 import com.boombiz.guard.camera.StreamUrls
 import com.boombiz.guard.cloud.CameraHealth
@@ -61,6 +62,8 @@ class WatchService : Service() {
     private val app get() = application as GuardApp
     private val io = Executors.newScheduledThreadPool(2)
     private val analysis = Executors.newSingleThreadExecutor() // one frame at a time: keeps the phone cool
+    private val speakers = Executors.newFixedThreadPool(MAX_CAMERAS) // a camera siren blocks while it plays
+    private val speaking = ConcurrentHashMap<Long, CameraSpeaker>()
     private val busy = AtomicBoolean(false)
     private val sources = ConcurrentHashMap<Long, RtspFrameSource>()
     private val watchers = ConcurrentHashMap<Long, CameraWatcher>()
@@ -105,7 +108,7 @@ class WatchService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_RELOAD) io.execute { guard("reload") { reloadCameras() } }
-        if (intent?.action == ACTION_STOP_SIREN) siren.stop()
+        if (intent?.action == ACTION_STOP_SIREN) stopSirens()
         return START_STICKY
     }
 
@@ -114,7 +117,8 @@ class WatchService : Service() {
         instance = null
         runCatching { unregisterReceiver(power) }
         sources.values.forEach { it.stop() }
-        io.shutdownNow(); analysis.shutdownNow()
+        speaking.values.forEach { it.stop() }
+        io.shutdownNow(); analysis.shutdownNow(); speakers.shutdownNow()
         detector?.close()
         wake?.takeIf { it.isHeld }?.release()
         wifi?.takeIf { it.isHeld }?.release()
@@ -251,15 +255,37 @@ class WatchService : Service() {
         }
         val cam = cams[e.cameraId]
         val camId = e.cameraId.takeIf { it > 0L } // 0 = the device itself, below 0 = a camera app: no camera row
-        val inc = Incident(id, ref, rule.type, rule.severity, camId, cam?.name ?: cameraName, rule.title,
-            e.detail, Instant.now().toString(), "UNREVIEWED", null, null, snap)
+        val inc = Incident(id, ref, rule.type, e.severity ?: rule.severity, camId, cam?.name ?: cameraName, rule.title,
+            e.detail, Instant.now().toString(), "UNREVIEWED", null, null, snap, e.confidence)
         app.store.insertIncident(inc)
         sync.enqueue(inc)
 
         IncidentRules.ALARMS[rule.type]?.let { a ->
-            if (!(a.afterClosingOnly && storeOpen)) siren.sound(rule.type, a.seconds, a.cooldownS)
+            if (!(a.afterClosingOnly && storeOpen) && siren.sound(rule.type, a.seconds, a.cooldownS)) cameraSirens(a.seconds)
         }
+        if (rule.type in URGENT) io.execute { guard("sync") { sync.process() } } // don't wait for the 5 s loop, or block the AI
         alertNotification(inc)
+    }
+
+    /** The same siren through every camera whose speaker the installer switched on (ONVIF back-channel). */
+    private fun cameraSirens(seconds: Int) {
+        for (c in cams.values.filter { it.speaker }) {
+            if (speaking.containsKey(c.id)) continue
+            val s = CameraSpeaker(c.host, c.rtspPort, StreamUrls.path(c.brand, c.channel, c.customPath, c.username,
+                c.passwordSealed?.let { Vault.open(it) }), c.username, c.passwordSealed?.let { Vault.open(it) })
+            speaking[c.id] = s
+            speakers.execute {
+                try { s.play(seconds); status.speakerErrors.remove(c.id) } catch (t: Throwable) {
+                    status.speakerErrors[c.id] = t.message ?: "no sound"
+                    Log.w(TAG, "camera speaker failed", t)
+                } finally { speaking.remove(c.id) }
+            }
+        }
+    }
+
+    private fun stopSirens() {
+        siren.stop()
+        speaking.values.forEach { it.stop() }
     }
 
     private fun saveSnapshot(id: String, f: Frame): String? {
@@ -294,7 +320,7 @@ class WatchService : Service() {
             if (c.optString("type") in HeartbeatReport.ALLOWED_COMMANDS) {
                 val localId = c.optString("local_incident_id")
                 if (app.store.acknowledge(localId, "${c.optString("by", "Boombiz").take(60)} (remote)", c.optString("at", Instant.now().toString()))) {
-                    siren.stop()
+                    stopSirens()
                     app.store.incident(localId)?.let { sync.enqueue(it) }
                 }
             }
@@ -345,6 +371,8 @@ class WatchService : Service() {
         /** null = no battery (TV box) or unknown. */
         @Volatile var charging: Boolean? = null
         val cameraErrors = ConcurrentHashMap<Long, String>()
+        /** Why the last siren couldn't play through a camera's own speaker. */
+        val speakerErrors = ConcurrentHashMap<Long, String>()
         val peopleNow = ConcurrentHashMap<Long, Int>()
         val lastFrame = ConcurrentHashMap<Long, Frame>()
         /** Camera app package → when Guard last heard an alarm from it (ms). */
@@ -362,6 +390,7 @@ class WatchService : Service() {
         const val MAX_CAMERAS = 2          // ~5 fps each on a 4 GB phone; more needs a PC
         const val FPS = 5.0
         private const val OFFLINE_AFTER_MS = 30_000L
+        private val URGENT = setOf("POSSIBLE_UNPAID_EXIT", "POSSIBLE_PRODUCT_REPLACEMENT")
         private const val RETENTION_DAYS = 30
         private const val NOTE_WATCH = 1
         val status = Status()

@@ -17,6 +17,9 @@ object IncidentRules {
         // because the camera — not Guard's AI — decided there was a person.
         AppAlerts.EVENT to IncidentRule("AFTER_HOURS_INTRUSION", "CRITICAL", 60.0, "Movement after hours", false),
         "RESTRICTED_ZONE_ENTRY" to IncidentRule("RESTRICTED_AREA_INCIDENT", "HIGH", 30.0, "Restricted area entered", true),
+        // Daytime theft (TheftCorrelator). Severity comes from the event: LOW confidence → LOW.
+        "POSSIBLE_UNPAID_EXIT" to IncidentRule("POSSIBLE_UNPAID_EXIT", "HIGH", 60.0, "Possible unpaid exit", true),
+        "POSSIBLE_PRODUCT_REPLACEMENT" to IncidentRule("POSSIBLE_PRODUCT_REPLACEMENT", "HIGH", 60.0, "Possible product swap at shelf", true),
         "CAMERA_OFFLINE" to IncidentRule("CAMERA_OFFLINE", "HIGH", 1e9, "Camera stopped sending video", false),
         "CAMERA_TAMPERED" to IncidentRule("CAMERA_TAMPERED", "HIGH", 600.0, "Camera covered or turned away", false),
         // The watcher itself pulled off its charger (phone only; a TV box just loses power).
@@ -26,9 +29,10 @@ object IncidentRules {
         "DEVICE_UNPLUGGED_OPEN" to IncidentRule(UNPLUGGED, "LOW", 600.0, "Guard phone unplugged", false),
     )
 
-    /** Sync order after an outage (PC cloud/sync.py): after-hours first, then restricted, then health. */
+    /** Sync order after an outage (PC cloud/sync.py): after-hours first, then theft, then restricted, then health. */
     fun priority(type: String): Int = when (type) {
         "AFTER_HOURS_INTRUSION", UNPLUGGED -> 20
+        "POSSIBLE_UNPAID_EXIT", "POSSIBLE_PRODUCT_REPLACEMENT" -> 30
         "RESTRICTED_AREA_INCIDENT" -> 35
         "CAMERA_OFFLINE", "CAMERA_TAMPERED" -> 40
         else -> 70
@@ -42,6 +46,10 @@ object IncidentRules {
     val ALARMS = mapOf(
         "AFTER_HOURS_INTRUSION" to Alarm(10, 60, false),
         "RESTRICTED_AREA_INCIDENT" to Alarm(5, 30, false),
+        // Short, like the PC: a false alert is a beep, not a scene. Every suspected
+        // unpaid exit sounds (no cooldown); swaps at most every 30 s.
+        "POSSIBLE_UNPAID_EXIT" to Alarm(3, 0, false),
+        "POSSIBLE_PRODUCT_REPLACEMENT" to Alarm(3, 30, false),
         // Camera damage sounds only after closing: in the day staff move and clean cameras.
         "CAMERA_OFFLINE" to Alarm(10, 0, true),
         "CAMERA_TAMPERED" to Alarm(10, 0, true),

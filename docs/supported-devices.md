@@ -18,6 +18,9 @@ records what has actually been **verified**, and against what.
 | V380 with local RTSP enabled | ⬜ | ⬜ |
 | 4G / solar cameras via their phone app (V380 Pro, CamHi, UBox) — Android watcher only, see android-watcher.md | ✅ unit-tested | ⬜ |
 | XMEye recorders | ⬜ no adapter yet | ⬜ |
+| Android Wi-Fi camera presets: EZVIZ, Imou, Tapo, Reolink, CamHi, Yoosee, iCSee (paths only) | ✅ unit-tested | ⬜ |
+| Android shelf → exit theft detection | ✅ synthetic frames | ⬜ |
+| Camera speaker siren (ONVIF audio back-channel, G.711) | ✅ SDP/digest/G.711 unit-tested | ⬜ |
 | Automatic reconnect after a feed drops | ✅ | ⬜ |
 
 **Nothing on this page may be marketed as supported until the "Real hardware"

@@ -29,7 +29,7 @@ class SyncQueue(private val store: Store, private val cloud: CloudClient, privat
 
         fun payload(i: Incident): JSONObject = JSONObject()
             .put("local_incident_id", i.id).put("ref", i.ref).put("incident_type", i.type).put("severity", i.severity)
-            .put("confidence", JSONObject.NULL).put("camera_id", i.cameraId?.toString() ?: JSONObject.NULL)
+            .put("confidence", i.confidence ?: JSONObject.NULL).put("camera_id", i.cameraId?.toString() ?: JSONObject.NULL)
             .put("camera_name", i.cameraName ?: JSONObject.NULL).put("title", i.title)
             .put("description", i.description ?: JSONObject.NULL).put("occurred_at", i.occurredAt)
             .put("status", i.status).put("acknowledged_by", i.acknowledgedBy ?: JSONObject.NULL)
