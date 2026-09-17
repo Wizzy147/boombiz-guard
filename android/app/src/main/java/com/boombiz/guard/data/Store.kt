@@ -23,12 +23,14 @@ data class Incident(
     val status: String, val acknowledgedBy: String?, val acknowledgedAt: String?, val snapshotPath: String?,
     /** LOW | MEDIUM | HIGH for theft signals; null for everything else. */
     val confidence: String? = null,
+    /** The alert's video, once the 10 seconds after it have been recorded (HIGH and CRITICAL only). */
+    val clipPath: String? = null,
 )
 
 data class SyncJob(val id: Long, val op: String, val incidentId: String, val attempts: Int)
 
 /** The phone's local database. Plain SQLite: small schema, no annotation processors to build. */
-class Store(ctx: Context) : SQLiteOpenHelper(ctx, "guard.db", null, 2) {
+class Store(ctx: Context) : SQLiteOpenHelper(ctx, "guard.db", null, 3) {
 
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT)")
@@ -45,7 +47,7 @@ class Store(ctx: Context) : SQLiteOpenHelper(ctx, "guard.db", null, 2) {
         db.execSQL("""CREATE TABLE sync_jobs (id INTEGER PRIMARY KEY AUTOINCREMENT, op TEXT NOT NULL, incident_id TEXT NOT NULL,
             priority INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'PENDING', attempts INTEGER NOT NULL DEFAULT 0,
             next_at_ms INTEGER NOT NULL DEFAULT 0, last_error TEXT, cloud_id TEXT, UNIQUE(op, incident_id))""")
-        onUpgrade(db, 1, 2)
+        onUpgrade(db, 1, 3)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -53,6 +55,7 @@ class Store(ctx: Context) : SQLiteOpenHelper(ctx, "guard.db", null, 2) {
             db.execSQL("ALTER TABLE incidents ADD COLUMN confidence TEXT")
             db.execSQL("ALTER TABLE cameras ADD COLUMN speaker INTEGER NOT NULL DEFAULT 0")
         }
+        if (oldVersion < 3) db.execSQL("ALTER TABLE incidents ADD COLUMN clip_path TEXT")
     }
 
     // ── settings ─────────────────────────────────────────────────────
@@ -120,9 +123,9 @@ class Store(ctx: Context) : SQLiteOpenHelper(ctx, "guard.db", null, 2) {
     // ── incidents ────────────────────────────────────────────────────
     private fun Cursor.incident() = Incident(getString(0), getString(1), getString(2), getString(3),
         if (isNull(4)) null else getLong(4), getString(5), getString(6), getString(7), getString(8), getString(9),
-        getString(10), getString(11), getString(12), getString(13))
+        getString(10), getString(11), getString(12), getString(13), getString(14))
 
-    private val incCols = "id,ref,type,severity,camera_id,camera_name,title,description,occurred_at,status,acknowledged_by,acknowledged_at,snapshot_path,confidence"
+    private val incCols = "id,ref,type,severity,camera_id,camera_name,title,description,occurred_at,status,acknowledged_by,acknowledged_at,snapshot_path,confidence,clip_path"
 
     fun incidents(limit: Int = 100): List<Incident> = readableDatabase.rawQuery(
         "SELECT $incCols FROM incidents ORDER BY created_ms DESC LIMIT $limit", null
@@ -143,6 +146,10 @@ class Store(ctx: Context) : SQLiteOpenHelper(ctx, "guard.db", null, 2) {
         ContentValues().apply { put("status", "ACKNOWLEDGED"); put("acknowledged_by", by); put("acknowledged_at", at) },
         "id=? AND status='UNREVIEWED'", arrayOf(id)) == 1
 
+    /** The clip is written 10 s after the alert; false when the incident is already gone. */
+    fun setClipPath(id: String, path: String): Boolean = writableDatabase.update("incidents",
+        ContentValues().apply { put("clip_path", path) }, "id=?", arrayOf(id)) == 1
+
     fun lastIncidentAt(): String? = readableDatabase.rawQuery("SELECT MAX(occurred_at) FROM incidents", null)
         .use { if (it.moveToFirst()) it.getString(0) else null }
 
@@ -158,8 +165,11 @@ class Store(ctx: Context) : SQLiteOpenHelper(ctx, "guard.db", null, 2) {
     /** Local retention: incidents older than [days] go, with their snapshots. → snapshot paths to delete. */
     fun pruneIncidents(days: Int): List<String> {
         val cutoff = System.currentTimeMillis() - days * 86_400_000L
-        val paths = readableDatabase.rawQuery("SELECT snapshot_path FROM incidents WHERE created_ms < ? AND snapshot_path IS NOT NULL",
-            arrayOf(cutoff.toString())).use { c -> buildList { while (c.moveToNext()) add(c.getString(0)) } }
+        val paths = readableDatabase.rawQuery(
+            "SELECT snapshot_path, clip_path FROM incidents WHERE created_ms < ? AND (snapshot_path IS NOT NULL OR clip_path IS NOT NULL)",
+            arrayOf(cutoff.toString())).use { c ->
+            buildList { while (c.moveToNext()) { c.getString(0)?.let { add(it) }; c.getString(1)?.let { add(it) } } }
+        }
         writableDatabase.execSQL("DELETE FROM sync_jobs WHERE incident_id IN (SELECT id FROM incidents WHERE created_ms < ?)", arrayOf(cutoff))
         writableDatabase.delete("incidents", "created_ms < ?", arrayOf(cutoff.toString()))
         return paths

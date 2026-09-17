@@ -19,7 +19,7 @@ activation codes, heartbeats, incident sync, media bucket, alert rules and Whats
 | Camera offline 30 s / covered / turned (HIGH) | yes | yes |
 | Local alarm | device alarm sound (full volume, alarm stream) + the camera's own speaker (ONVIF back-channel, opt-in per camera) | PC beep + CCTV siren + relays |
 | Snapshot to cloud | yes | yes |
-| Clip to cloud | **no** (no rolling video buffer yet) | HIGH/CRITICAL |
+| Clip to cloud | yes — 5 s before + 10 s after, 640×360 H.264 | HIGH/CRITICAL |
 | Concealment (pose model), fire | **no** | yes |
 | Remote acknowledge | yes (heartbeat command) | yes |
 | Watcher unplugged | phone: CRITICAL + 30 s siren after hours, LOW notice when open (TV box: no battery, can't tell) | — |
@@ -64,10 +64,23 @@ no OpenCV) and `watch/TheftCorrelator.kt`. The installer draws **Shelf**, **Exit
 - Not on the phone: concealment (needs the pose model). Only runs on cameras with shelf zones. Never "theft".
 - Unit-tested on synthetic frames only; thresholds are the PC's pilot defaults. Test in a real shop before selling it.
 
+## Alert videos
+
+`media/ClipBuffer.kt` + `media/ClipEncoder.kt`, the PC's rolling_buffer.py + media/clip.py without ffmpeg. Every
+decoded frame is kept as a JPEG in a 10-second ring per camera (a few hundred KB; raw ARGB would be 46 MB). A HIGH or
+CRITICAL alert on a real camera opens a capture — the 5 s already held plus the 10 s that follow, 15 s maximum — and
+once those seconds have passed the frames are encoded to a 640×360 H.264 MP4 (~200 kbps, a few hundred KB) with
+MediaCodec + MediaMuxer, fed as NV12 byte buffers so no OpenGL is needed and a TV box behaves like a phone.
+
+`CLIP_UPLOAD` goes out after `SNAPSHOT_UPLOAD` (priority 60 vs 50), so the owner gets the picture first and the video
+follows; `clip_expected` tells the cloud one is coming. Same upload contract as the PC (`video/mp4`, 30 MB cap).
+Clips are kept 30 days on the device with their incident and deleted with it. A device that can't encode says so on
+the status screen and the alert still goes out with its snapshot.
+
 ## Live view (on the device only)
 
-`ui/LiveViewActivity.kt`: "Watch <camera> live" on the home screen and the camera screen (both behind the settings
-PIN). It shows the frames the watcher already decodes (~5/s) and opens its own stream only for a camera the watcher
+`ui/LiveViewActivity.kt`: "Watch <camera> live" on the home screen and the camera screen (no PIN: staff may look,
+but changing anything still needs the PIN). It shows the frames the watcher already decodes (~5/s) and opens its own stream only for a camera the watcher
 isn't on. For aiming cameras, drawing shelf/exit areas and checking the shop from the counter. The picture stays on
 the device: nothing is recorded and nothing is sent to Boombiz — only alert snapshots are. Screen stays on while open.
 Live video to the owner's phone over the internet was deliberately NOT built (relay cost, data, and video would leave

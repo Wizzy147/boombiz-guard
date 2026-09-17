@@ -32,6 +32,8 @@ import com.boombiz.guard.cloud.SyncQueue
 import com.boombiz.guard.data.Camera
 import com.boombiz.guard.data.Incident
 import com.boombiz.guard.data.Vault
+import com.boombiz.guard.media.ClipBuffer
+import com.boombiz.guard.media.ClipEncoder
 import com.boombiz.guard.ui.MainActivity
 import java.io.File
 import java.io.FileOutputStream
@@ -63,6 +65,8 @@ class WatchService : Service() {
     private val io = Executors.newScheduledThreadPool(2)
     private val analysis = Executors.newSingleThreadExecutor() // one frame at a time: keeps the phone cool
     private val speakers = Executors.newFixedThreadPool(MAX_CAMERAS) // a camera siren blocks while it plays
+    private val clipWork = Executors.newSingleThreadExecutor()       // one video encode at a time
+    private val clips = ConcurrentHashMap<Long, ClipBuffer>()
     private val speaking = ConcurrentHashMap<Long, CameraSpeaker>()
     private val busy = AtomicBoolean(false)
     private val sources = ConcurrentHashMap<Long, RtspFrameSource>()
@@ -118,7 +122,7 @@ class WatchService : Service() {
         runCatching { unregisterReceiver(power) }
         sources.values.forEach { it.stop() }
         speaking.values.forEach { it.stop() }
-        io.shutdownNow(); analysis.shutdownNow(); speakers.shutdownNow()
+        io.shutdownNow(); analysis.shutdownNow(); speakers.shutdownNow(); clipWork.shutdownNow()
         detector?.close()
         wake?.takeIf { it.isHeld }?.release()
         wifi?.takeIf { it.isHeld }?.release()
@@ -139,12 +143,13 @@ class WatchService : Service() {
 
     private fun reloadCameras() {
         sources.values.forEach { it.stop() }
-        sources.clear(); watchers.clear(); cams.clear(); state.clear()
+        sources.clear(); watchers.clear(); cams.clear(); state.clear(); clips.clear()
         val det = detector ?: return
         val enabled = app.store.cameras().filter { it.enabled }.take(MAX_CAMERAS)
         for (c in enabled) {
             cams[c.id] = c
             watchers[c.id] = CameraWatcher(c.id, app.store.zones(c.id), det::detect)
+            clips[c.id] = ClipBuffer()
             val url = StreamUrls.url(c.host, c.rtspPort, c.brand, c.channel, c.customPath, c.username, c.passwordSealed?.let { Vault.open(it) })
             val src = RtspFrameSource(this, url, FPS, onFrame = { f -> onFrame(c.id, f) }, onState = { s, msg -> onState(c.id, s, msg) })
             sources[c.id] = src
@@ -166,6 +171,7 @@ class WatchService : Service() {
 
     private fun onFrame(cameraId: Long, f: Frame) {
         status.lastFrame[cameraId] = f // the camera screen shows it; never leaves the phone
+        clips[cameraId]?.let { b -> io.execute { guard("clip buffer") { b.add(f) } } } // JPEG off the decode thread
         if (!busy.compareAndSet(false, true)) return // AI behind: drop, never backlog
         analysis.execute {
             try {
@@ -260,11 +266,49 @@ class WatchService : Service() {
         app.store.insertIncident(inc)
         sync.enqueue(inc)
 
+        if (inc.severity in SyncQueue.CLIP_SEVERITIES && camId != null) startClip(inc, e.cameraId, frame)
+
         IncidentRules.ALARMS[rule.type]?.let { a ->
             if (!(a.afterClosingOnly && storeOpen) && siren.sound(rule.type, a.seconds, a.cooldownS)) cameraSirens(a.seconds)
         }
         if (rule.type in URGENT) io.execute { guard("sync") { sync.process() } } // don't wait for the 5 s loop, or block the AI
         alertNotification(inc)
+    }
+
+    /**
+     * The alert's video: the 5 s the camera already holds in memory plus the 10 s
+     * after it. Encoded once those 10 s have passed, then queued for the cloud —
+     * the snapshot has long gone ahead of it.
+     */
+    private fun startClip(inc: Incident, cameraId: Long, frame: Frame?) {
+        val buffer = clips[cameraId] ?: return
+        val trigger = frame?.ts ?: (SystemClock.elapsedRealtime() / 1000.0)
+        if (buffer.startCapture(inc.id, trigger) == null) return
+        io.schedule({ guard("clip") { finishClips(cameraId) } },
+            (ClipBuffer.POST_S + 2).toLong(), TimeUnit.SECONDS)
+    }
+
+    private fun finishClips(cameraId: Long) {
+        val buffer = clips[cameraId] ?: return
+        for (cap in buffer.ready(SystemClock.elapsedRealtime() / 1000.0)) {
+            val inc = app.store.incident(cap.incidentId) ?: continue
+            clipWork.execute {
+                guard("clip encode") {
+                    val name = "${cap.incidentId}.mp4"
+                    try {
+                        ClipEncoder.encode(cap.frames, File(mediaDir, name))
+                        if (app.store.setClipPath(cap.incidentId, name)) {
+                            sync.enqueue(inc.copy(clipPath = name))
+                            sync.process()
+                        }
+                    } catch (e: Exception) {
+                        File(mediaDir, name).delete()
+                        status.clipError = e.message
+                        Log.w(TAG, "clip failed", e)
+                    }
+                }
+            }
+        }
     }
 
     /** The same siren through every camera whose speaker the installer switched on (ONVIF back-channel). */
@@ -368,6 +412,8 @@ class WatchService : Service() {
         @Volatile var aiFps = 0.0
         @Volatile var cloudOk: Boolean? = null
         @Volatile var syncError: String? = null
+        /** Why the last alert video couldn't be made (some cheap devices have no video encoder to spare). */
+        @Volatile var clipError: String? = null
         /** null = no battery (TV box) or unknown. */
         @Volatile var charging: Boolean? = null
         val cameraErrors = ConcurrentHashMap<Long, String>()

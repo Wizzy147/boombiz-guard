@@ -39,6 +39,8 @@ object IncidentRules {
     }
 
     const val SNAPSHOT_PRIORITY = 50
+    /** After the snapshot: the picture reaches the owner first, the video follows. */
+    const val CLIP_PRIORITY = 60
 
     /** How long the siren sounds (s), and whether it only sounds with the shop closed. */
     data class Alarm(val seconds: Int, val cooldownS: Int, val afterClosingOnly: Boolean)

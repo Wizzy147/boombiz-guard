@@ -11,17 +11,20 @@ import java.security.MessageDigest
 /**
  * Incident sync, the PC agent's cloud/sync.py for the core watcher:
  * INCIDENT_UPSERT first (idempotent on local_incident_id), then SNAPSHOT_UPLOAD
- * once the cloud id exists. Lowest priority number first, so after an outage
- * the after-hours alert lands before camera-health noise. Never on the
- * detection path: if the cloud is down, jobs wait in SQLite.
- *
- * No clips in v1: the phone keeps no rolling video buffer.
+ * and — for HIGH and CRITICAL alerts — CLIP_UPLOAD, once the cloud id exists.
+ * Lowest priority number first, so after an outage the after-hours alert lands
+ * before camera-health noise. Never on the detection path: if the cloud is
+ * down, jobs wait in SQLite.
  */
 class SyncQueue(private val store: Store, private val cloud: CloudClient, private val mediaDir: File) {
 
     companion object {
         const val UPSERT = "INCIDENT_UPSERT"
         const val SNAPSHOT = "SNAPSHOT_UPLOAD"
+        const val CLIP = "CLIP_UPLOAD"
+        /** Only serious alerts carry a video (PC cloud/sync.py): the rest would be data for nothing. */
+        val CLIP_SEVERITIES = setOf("HIGH", "CRITICAL")
+        private val MEDIA = mapOf(SNAPSHOT to ("SNAPSHOT" to "image/jpeg"), CLIP to ("CLIP" to "video/mp4"))
         private val BACKOFF = longArrayOf(5, 15, 30, 60, 120, 300)
         private const val MEDIA_MAX_ATTEMPTS = 8
         private const val NOT_READY_S = 300L
@@ -35,7 +38,8 @@ class SyncQueue(private val store: Store, private val cloud: CloudClient, privat
             .put("status", i.status).put("acknowledged_by", i.acknowledgedBy ?: JSONObject.NULL)
             .put("acknowledged_at", i.acknowledgedAt ?: JSONObject.NULL).put("keep_evidence", false)
             .put("timeline", JSONArray().put(JSONObject().put("event", i.type).put("at", i.occurredAt)))
-            .put("snapshot_expected", i.snapshotPath != null).put("clip_expected", false)
+            .put("snapshot_expected", i.snapshotPath != null)
+            .put("clip_expected", i.severity in CLIP_SEVERITIES && i.cameraId != null)
     }
 
     var lastError: String? = null
@@ -45,6 +49,7 @@ class SyncQueue(private val store: Store, private val cloud: CloudClient, privat
         if (i.severity == "INFO") return
         store.want(UPSERT, i.id, com.boombiz.guard.watch.IncidentRules.priority(i.type), reset = true)
         if (i.snapshotPath != null) store.want(SNAPSHOT, i.id, com.boombiz.guard.watch.IncidentRules.SNAPSHOT_PRIORITY)
+        if (i.clipPath != null && i.severity in CLIP_SEVERITIES) store.want(CLIP, i.id, com.boombiz.guard.watch.IncidentRules.CLIP_PRIORITY)
     }
 
     /** Run due jobs. Called every 5 s by the watch service, and at once for urgent incidents; blocking (IO thread). */
@@ -54,10 +59,10 @@ class SyncQueue(private val store: Store, private val cloud: CloudClient, privat
         for (job in store.dueJobs(now)) {
             val inc = store.incident(job.incidentId)
             if (inc == null) { store.jobFail(job.id, "The incident was deleted on this phone."); continue }
-            val cloudId = if (job.op == SNAPSHOT) store.cloudId(inc.id) ?: continue else null
+            val cloudId = if (job.op == UPSERT) null else store.cloudId(inc.id) ?: continue
             val attempts = job.attempts + 1
             val outcome = try {
-                if (job.op == UPSERT) upsert(inc) else upload(inc, cloudId!!)
+                if (job.op == UPSERT) upsert(inc) else upload(inc, cloudId!!, job.op)
             } catch (e: CloudClient.Rejected) {
                 lastError = e.message; return
             } catch (e: IOException) {
@@ -67,7 +72,7 @@ class SyncQueue(private val store: Store, private val cloud: CloudClient, privat
             when (outcome.kind) {
                 "done" -> { store.jobDone(job.id, outcome.cloudId); lastError = null }
                 "retry" -> {
-                    val media = job.op == SNAPSHOT && outcome.delayS != PAUSED_S
+                    val media = job.op != UPSERT && outcome.delayS != PAUSED_S
                     if (media && attempts >= MEDIA_MAX_ATTEMPTS) store.jobFail(job.id, outcome.error ?: "Upload failed.")
                     else store.jobRetry(job.id, attempts, now + (outcome.delayS?.times(1000) ?: backoff(attempts)), outcome.error ?: "retry")
                 }
@@ -97,20 +102,21 @@ class SyncQueue(private val store: Store, private val cloud: CloudClient, privat
         return if (o.kind == "done") o.copy(cloudId = body?.optString("incident_id")) else o
     }
 
-    private fun upload(i: Incident, cloudId: String): Outcome {
-        val f = i.snapshotPath?.let { File(mediaDir, it) }
+    private fun upload(i: Incident, cloudId: String, op: String): Outcome {
+        val (kind, contentType) = MEDIA[op] ?: return Outcome("failed", error = "Unknown upload.")
+        val f = (if (op == CLIP) i.clipPath else i.snapshotPath)?.let { File(mediaDir, it) }
         if (f == null || !f.exists()) return Outcome("failed", error = "The file is no longer on this phone.")
         val data = f.readBytes()
         val sha = MessageDigest.getInstance("SHA-256").digest(data).joinToString("") { "%02x".format(it) }
         val base = "/api/guard/v1/incidents/$cloudId/uploads"
-        val (code, d) = cloud.call("POST", base, JSONObject().put("media_type", "SNAPSHOT")
-            .put("content_type", "image/jpeg").put("size_bytes", data.size).put("sha256", sha))
+        val (code, d) = cloud.call("POST", base, JSONObject().put("media_type", kind)
+            .put("content_type", contentType).put("size_bytes", data.size).put("sha256", sha))
         val o = classify(code, d)
         if (o.kind != "done" || d == null) return o
         if (d.optBoolean("already_uploaded")) return Outcome("done")
         val put = cloud.put(d.getString("upload_url"), data, d.optJSONObject("headers") ?: JSONObject().put("Content-Type", "image/jpeg"))
         if (put >= 400) return Outcome("retry", error = "Upload refused (HTTP $put).")
-        val (c2, b2) = cloud.call("POST", "$base/complete", JSONObject().put("media_type", "SNAPSHOT"))
+        val (c2, b2) = cloud.call("POST", "$base/complete", JSONObject().put("media_type", kind))
         return if (c2 == 422) Outcome("retry", error = b2?.optString("error") ?: "Upload check failed.") else classify(c2, b2)
     }
 }

@@ -21,9 +21,10 @@ import com.boombiz.guard.watch.WatchService
 
 /**
  * Watch one camera live, ON THIS DEVICE only — for aiming a camera, drawing
- * shelf and exit areas, and checking the shop from behind the counter. The
+ * shelf and exit areas, and checking the shop from behind the counter. The live
  * picture never leaves the phone or TV box (owner decision 2026-09-17: live
- * video over the internet would break that promise and cost data every month).
+ * video over the internet would cost data every month); alerts are recorded and
+ * sent, watching is not. No PIN: staff may look, but not change settings.
  *
  * It shows the frames the watcher is already decoding, so watching costs the
  * phone nothing extra. For a camera the watcher isn't on (switched off, or over
@@ -51,10 +52,10 @@ class LiveViewActivity : Activity() {
         status = p.text("Connecting to the camera…", 15f, color = C.MUTED)
         view = ImageView(this).apply { adjustViewBounds = true }
         p.addView(view, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
-        p.text("This picture stays on this device. It is not recorded and it never goes to Boombiz — " +
-               "only alert snapshots do. Press Back when you're done.", 14f, color = C.MUTED)
+        p.text("Watching here is not recorded and doesn't go to Boombiz. Only alerts are: their picture and " +
+               "their 15-second video. Press Back when you're done.", 14f, color = C.MUTED)
         p.button("Areas: shelves, exit, cashier, restricted, ignore", primary = false) {
-            startActivity(android.content.Intent(this, ZoneEditorActivity::class.java).putExtra("id", cam.id))
+            PinLock.guard(this) { startActivity(android.content.Intent(this, ZoneEditorActivity::class.java).putExtra("id", cam.id)) }
         }
     }
 
