@@ -64,6 +64,15 @@ no OpenCV) and `watch/TheftCorrelator.kt`. The installer draws **Shelf**, **Exit
 - Not on the phone: concealment (needs the pose model). Only runs on cameras with shelf zones. Never "theft".
 - Unit-tested on synthetic frames only; thresholds are the PC's pilot defaults. Test in a real shop before selling it.
 
+## Live view (on the device only)
+
+`ui/LiveViewActivity.kt`: "Watch <camera> live" on the home screen and the camera screen (both behind the settings
+PIN). It shows the frames the watcher already decodes (~5/s) and opens its own stream only for a camera the watcher
+isn't on. For aiming cameras, drawing shelf/exit areas and checking the shop from the counter. The picture stays on
+the device: nothing is recorded and nothing is sent to Boombiz — only alert snapshots are. Screen stays on while open.
+Live video to the owner's phone over the internet was deliberately NOT built (relay cost, data, and video would leave
+the shop); owners watch live in their camera's own app.
+
 ## Camera speaker siren
 
 `camera/CameraSpeaker.kt`: RTSP `DESCRIBE` with `Require: www.onvif.org/ver20/backchannel`, `SETUP` the `a=sendonly`

@@ -77,6 +77,9 @@ class MainActivity : Activity() {
             p.button("${c.name}${if (!c.enabled) " (off)" else ""}", primary = false) {
                 PinLock.guard(this) { startActivity(Intent(this, CameraEditActivity::class.java).putExtra("id", c.id)) }
             }
+            p.button("Watch ${c.name} live", primary = false) {
+                PinLock.guard(this) { startActivity(Intent(this, LiveViewActivity::class.java).putExtra("id", c.id)) }
+            }
         }
         if (cams.size < WatchService.MAX_CAMERAS) p.button("Add a camera") {
             PinLock.guard(this) { startActivity(Intent(this, CameraEditActivity::class.java)) }

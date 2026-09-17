@@ -95,6 +95,9 @@ class CameraEditActivity : Activity() {
 
         p.button("Save") { save() }
         if (c != null) {
+            p.button("Watch this camera live", primary = false) {
+                startActivity(Intent(this, LiveViewActivity::class.java).putExtra("id", c.id))
+            }
             p.button("Areas: shelves, exit, cashier, restricted, ignore", primary = false) {
                 startActivity(Intent(this, ZoneEditorActivity::class.java).putExtra("id", c.id))
             }
